@@ -11,6 +11,29 @@ document.addEventListener("DOMContentLoaded", () => {
   let messageCount = 0;
   window.lastSuggestion = null; // Store last suggestion to show when switching to Clinician
 
+  // Helper function to highlight search terms in text
+  function highlightSearchTerms(text, searchQuery) {
+    if (text == null) return '';
+    // Normalize to string to avoid runtime errors when API returns objects
+    if (typeof text !== 'string') {
+      try {
+        text = JSON.stringify(text);
+      } catch {
+        text = String(text);
+      }
+    }
+    if (!text || !searchQuery) return text;
+
+    // Split search query into individual words/terms
+    const terms = searchQuery.toLowerCase().split(/\s+/).filter(term => term.length > 0);
+
+    // Create a regex that matches any of the search terms (case insensitive)
+    const regex = new RegExp(`(${terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+
+    // Replace matches with highlighted version
+    return text.replace(regex, '<mark>$1</mark>');
+  }
+
   // DOM Elements
   const searchBtn = document.getElementById('searchBtn');
   const searchQuery = document.getElementById('searchQuery');
@@ -150,8 +173,60 @@ document.addEventListener("DOMContentLoaded", () => {
           body: JSON.stringify({ query, max_results: parseInt(maxResults?.value || 5) })
         });
 
-        if (!response.ok) throw new Error('Search failed');
-        const data = await response.json();
+        const ct = response.headers.get('content-type') || '';
+        let data = null;
+        if (ct.includes('application/json')) {
+          data = await response.json();
+        } else {
+          const text = await response.text();
+          throw new Error(text || 'Search failed');
+        }
+        if (!response.ok) throw new Error(data?.error || 'Search failed');
+
+        // Clear previous search results from transcript
+        if (transcriptDiv) {
+          const systemMessages = transcriptDiv.querySelectorAll('.message.system');
+          const removedCount = systemMessages.length;
+          systemMessages.forEach(msg => msg.remove());
+          messageCount -= removedCount;
+          if (messageCountEl) messageCountEl.textContent = `${messageCount} messages`;
+        }
+
+        // Add search results to transcript
+        if (data.results?.length > 0) {
+          let resultsMessage = `**Search Results for "${query}"**\n\n`;
+          data.results.forEach((result, index) => {
+            resultsMessage += `**Case ${result.case_id}:** (Similarity: ${(result.similarity_score * 100).toFixed(1)}%)\n`;
+            resultsMessage += `**Patient Background:** ${highlightSearchTerms(result.patient_background?.english || result.patient_background || 'N/A', query)}\n`;
+            resultsMessage += `**Chief Complaint:** ${highlightSearchTerms(result.chief_complaint?.english || result.chief_complaint || 'N/A', query)}\n`;
+            resultsMessage += `**Medical History:** ${highlightSearchTerms(result.medical_history?.english || result.medical_history || 'N/A', query)}\n`;
+            resultsMessage += `**Opening Statement:** ${highlightSearchTerms(result.opening_statement?.english || result.opening_statement || 'N/A', query)}\n`;
+            resultsMessage += `**Suspected Illness:** ${result.Suspected_illness || 'N/A'}\n`;
+            if (result.red_flags && Object.keys(result.red_flags).length > 0) {
+              resultsMessage += `**Red Flags:** ${Object.entries(result.red_flags).map(([key, value]) => `${key}: ${value}`).join(', ')}\n`;
+            }
+            if (result.recommended_questions?.length > 0) {
+              resultsMessage += `**Recommended Questions:**\n`;
+              result.recommended_questions.slice(0, 5).forEach(q => {
+                const questionText = q?.question?.english || q?.english || q?.question || q;
+                resultsMessage += `• ${highlightSearchTerms(questionText, query)}\n`;
+              });
+            }
+            resultsMessage += `\n`;
+          });
+          addMessageToTranscript('system', resultsMessage);
+        } else {
+          // Always show feedback (avoid "nothing happens" UX)
+          const msg =
+            `**Search Results for "${query}"**\n\n` +
+            `No similar cases found.\n\n` +
+            `Try:\n` +
+            `• Using more specific symptoms (e.g. "headache fever nausea")\n` +
+            `• Adding more context (duration, location, severity)\n` +
+            `• Increasing max results\n` +
+            `• Lowering the similarity threshold (if you expose it in UI)\n`;
+          addMessageToTranscript('system', msg);
+        }
 
         // Update suggested questions
         if (data.suggested_questions?.length > 0) {
@@ -185,12 +260,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const language = languageMode?.value || 'bilingual';
     const mode = chatMode?.value || 'real';
 
+    // In simulated mode, the message is the Patient's scenario (not clinician input)
+    const displayRole = mode === 'simulated' ? 'patient' : currentRole;
+    const sendRole = mode === 'simulated' ? 'patient' : currentRole;
+
     // Add the user's message to transcript immediately
-    addMessageToTranscript(currentRole, message);
+    addMessageToTranscript(displayRole, message);
 
     // Track what we sent to skip the echo from backend
     lastSentMessage = message;
-    lastSentRole = currentRole;
+    lastSentRole = sendRole;
 
     // Hide old suggestion while waiting for new one
     suggestionBox?.classList.add('hidden');
@@ -198,7 +277,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Update and show typing indicator
     if (typingIndicator) {
       // The responder is typically the opposite role
-      const responderRole = currentRole === 'clinician' ? 'patient' : 'clinician';
+      const responderRole = displayRole === 'clinician' ? 'patient' : 'clinician';
       const typingIcon = document.getElementById('typingIcon');
       const typingRole = document.getElementById('typingRole');
 
@@ -219,7 +298,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const eventSource = new EventSource(
-      `/agent_chat_stream?message=${encodeURIComponent(message)}&lang=${language}&role=${encodeURIComponent(currentRole)}&mode=${mode}`
+      `/agent_chat_stream?message=${encodeURIComponent(message)}&lang=${language}&role=${encodeURIComponent(sendRole)}&mode=${mode}`
     );
 
     eventSource.onmessage = (event) => {
@@ -257,6 +336,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Add message to transcript
       addMessageToTranscript(item.role, item.message, item.timestamp);
+
+      // Update summary panel when Listener/Clinician arrive (e.g. from simulated stream)
+      const r = (item.role || '').toLowerCase();
+      if (r === 'listener' || r === 'clinician') {
+        updateSummaryPanelFromMessage(r, item.message || '');
+      }
     };
 
     eventSource.onerror = () => {
@@ -274,13 +359,32 @@ document.addEventListener("DOMContentLoaded", () => {
     if (agentMessage) agentMessage.value = '';
   }
 
+  function formatBilingualForDisplay(text) {
+    if (!text || typeof text !== 'string') return '';
+    // Ensure English and Kiswahili/Swahili appear on separate lines for readability
+    let t = text.trim();
+    // Insert line break before Swahili/Kiswahili so it appears on its own line
+    t = t.replace(/([^\n])\s+(Swahili|Kiswahili)\s*:?\s*/gi, '$1<br><br><strong>$2:</strong> ');
+    t = t.replace(/\n/g, '<br>');
+    return t;
+  }
+
   function addMessageToTranscript(role, message, timestamp) {
     if (!transcriptDiv) return;
 
-    const roleClass = role?.toLowerCase().includes('patient') ? 'patient' : 'clinician';
-    const roleLabel = roleClass === 'patient' ? 'Patient' : 'Clinician';
-    const roleIcon = roleClass === 'patient' ? 'user' : 'stethoscope';
+    let roleClass, roleLabel, roleIcon;
+    if (role?.toLowerCase() === 'system') {
+      roleClass = 'system';
+      roleLabel = 'System';
+      roleIcon = 'search';
+    } else {
+      roleClass = role?.toLowerCase().includes('patient') ? 'patient' : 'clinician';
+      roleLabel = roleClass === 'patient' ? 'Patient' : 'Clinician';
+      roleIcon = roleClass === 'patient' ? 'user' : 'stethoscope';
+    }
     const time = timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const formattedMsg = (roleClass === 'patient' || roleClass === 'clinician')
+      ? formatBilingualForDisplay(message) : (message || '').replace(/\n/g, '<br>');
 
     const msgEl = document.createElement('div');
     msgEl.className = `message ${roleClass}`;
@@ -290,7 +394,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="message-role ${roleClass}">${roleLabel}</span>
         <span class="message-time ${roleClass}">${time}</span>
       </div>
-      <p class="message-text">${(message || '').replace(/\n/g, '<br>')}</p>
+      <p class="message-text">${formattedMsg}</p>
     `;
     transcriptDiv.appendChild(msgEl);
     lucide.createIcons({ nodes: [msgEl] });
@@ -363,6 +467,48 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function updateSummaryPanelFromMessage(role, message) {
+    const patientSummary = document.getElementById('patientSummary');
+    const keyFindings = document.getElementById('keyFindings');
+    const differentialDiagnosis = document.getElementById('differentialDiagnosis');
+    const recommendedPlan = document.getElementById('recommendedPlan');
+    const followUp = document.getElementById('followUp');
+
+    if (role === 'listener') {
+      if (patientSummary) {
+        let formatted = (message || '')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n/g, '<br>');
+        formatted = formatted.replace(
+          /(<strong>Swahili Summary<\/strong>)(.*?)(?=<strong>|$)/gi,
+          '$1<em>$2</em>'
+        );
+        patientSummary.innerHTML = formatted;
+      }
+      if (keyFindings) {
+        const findings = [];
+        const lines = (message || '').split('\n').filter(l => l.trim().startsWith('-'));
+        lines.slice(0, 5).forEach(line => {
+          findings.push(`<li><span class="bullet">&bull;</span> ${line.replace(/^-\s*/, '')}</li>`);
+        });
+        if (findings.length > 0) keyFindings.innerHTML = findings.join('');
+      }
+    }
+    if (role === 'clinician') {
+      if (recommendedPlan) {
+        const planItems = [];
+        const lines = (message || '').split('\n').filter(l => l.trim().startsWith('-') || l.trim().match(/^Step\s*\d+/i));
+        lines.forEach(line => {
+          const cleanLine = line.replace(/^-\s*/, '').replace(/^Step\s*\d+:\s*/i, '');
+          planItems.push(`<li><span class="check">&#10003;</span> ${cleanLine}</li>`);
+        });
+        recommendedPlan.innerHTML = planItems.length > 0 ? planItems.join('') : `<li>${(message || '').replace(/\n/g, '<br>')}</li>`;
+      }
+      if (followUp) followUp.innerHTML = 'Schedule follow-up appointment to review test results and discuss next steps.';
+      if (differentialDiagnosis) differentialDiagnosis.innerHTML = '<li><span class="num">1.</span> See recommended plan for diagnostic approach</li>';
+    }
+  }
+
   // Finalize Button - Show Summary Panel
   if (finalizeBtn) {
     finalizeBtn.addEventListener('click', () => {
@@ -371,87 +517,35 @@ document.addEventListener("DOMContentLoaded", () => {
         resizeRight?.classList.remove('hidden');
       }
 
-      // Show loading state
       const patientSummary = document.getElementById('patientSummary');
       const keyFindings = document.getElementById('keyFindings');
-      const differentialDiagnosis = document.getElementById('differentialDiagnosis');
       const recommendedPlan = document.getElementById('recommendedPlan');
-      const followUp = document.getElementById('followUp');
-
-      if (patientSummary) patientSummary.innerHTML = '<em>Generating summary...</em>';
-      if (keyFindings) keyFindings.innerHTML = '<li><span class="bullet">&bull;</span> Analyzing conversation...</li>';
-      if (recommendedPlan) recommendedPlan.innerHTML = '<li><span class="check">&#10003;</span> Generating plan...</li>';
 
       const language = languageMode?.value || 'bilingual';
       const mode = chatMode?.value || 'real';
 
-      const eventSource = new EventSource(
-        `/agent_chat_stream?message=${encodeURIComponent('[Finalize]')}&lang=${language}&role=finalize&mode=${mode}`
-      );
+      if (mode === 'simulated') {
+        // Simulated: summary/plan already arrived in main stream; panel was updated via updateSummaryPanelFromMessage
+      } else {
+        // Real/Live: call API to generate summary from conversation
+        if (patientSummary) patientSummary.innerHTML = '<em>Generating summary...</em>';
+        if (keyFindings) keyFindings.innerHTML = '<li><span class="bullet">&bull;</span> Analyzing conversation...</li>';
+        if (recommendedPlan) recommendedPlan.innerHTML = '<li><span class="check">&#10003;</span> Generating plan...</li>';
 
-      eventSource.onmessage = (event) => {
-        const item = JSON.parse(event.data);
-        if (item.type === 'question_recommender') return;
+        const eventSource = new EventSource(
+          `/agent_chat_stream?message=${encodeURIComponent('[Finalize]')}&lang=${language}&role=finalize&mode=${mode}`
+        );
 
-        const role = (item.role || '').toLowerCase();
-        const message = item.message || '';
+        eventSource.onmessage = (event) => {
+          const item = JSON.parse(event.data);
+          if (item.type === 'question_recommender') return;
+          updateSummaryPanelFromMessage((item.role || '').toLowerCase(), item.message || '');
+        };
 
-        // Listener provides the summary
-        if (role === 'listener') {
-          if (patientSummary) {
-            // Convert markdown bold **text** to <strong> and newlines to <br>
-            // Put Swahili section in italics
-            let formatted = message
-              .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-              .replace(/\n/g, '<br>');
-
-            // Wrap Swahili section in italics (text after "Swahili Summary")
-            formatted = formatted.replace(
-              /(<strong>Swahili Summary<\/strong>)(.*?)(?=<strong>|$)/gi,
-              '$1<em>$2</em>'
-            );
-            patientSummary.innerHTML = formatted;
-          }
-          // Extract key findings from summary
-          if (keyFindings) {
-            const findings = [];
-            const lines = message.split('\n').filter(l => l.trim().startsWith('-'));
-            lines.slice(0, 5).forEach(line => {
-              findings.push(`<li><span class="bullet">&bull;</span> ${line.replace(/^-\s*/, '')}</li>`);
-            });
-            if (findings.length > 0) {
-              keyFindings.innerHTML = findings.join('');
-            }
-          }
-        }
-
-        // Clinician provides the final plan
-        if (role === 'clinician') {
-          if (recommendedPlan) {
-            const planItems = [];
-            const lines = message.split('\n').filter(l => l.trim().startsWith('-') || l.trim().match(/^Step\s*\d+/i));
-            lines.forEach(line => {
-              const cleanLine = line.replace(/^-\s*/, '').replace(/^Step\s*\d+:\s*/i, '');
-              planItems.push(`<li><span class="check">&#10003;</span> ${cleanLine}</li>`);
-            });
-            if (planItems.length > 0) {
-              recommendedPlan.innerHTML = planItems.join('');
-            } else {
-              recommendedPlan.innerHTML = `<li>${message.replace(/\n/g, '<br>')}</li>`;
-            }
-          }
-          if (followUp) {
-            followUp.innerHTML = 'Schedule follow-up appointment to review test results and discuss next steps.';
-          }
-          if (differentialDiagnosis) {
-            differentialDiagnosis.innerHTML = '<li><span class="num">1.</span> See recommended plan for diagnostic approach</li>';
-          }
-        }
-      };
-
-      eventSource.onerror = () => {
-        eventSource.close();
-      };
+        eventSource.onerror = () => {
+          eventSource.close();
+        };
+      }
     });
   }
 
@@ -1197,6 +1291,11 @@ function wireNewPatientButton() {
         credentials: 'same-origin',
         body: JSON.stringify({})
       });
+      const ct = r.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        alert('Session may have expired. Please refresh the page and log in again.');
+        return;
+      }
       const data = await r.json();
       if (data.ok && data.patient_id) {
         await loadPatients();
@@ -1206,7 +1305,7 @@ function wireNewPatientButton() {
         alert(data.error || 'Failed to create patient');
       }
     } catch (e) {
-      alert('Network error: ' + e.message);
+      alert('Network error: ' + (e.message || 'Please try again.'));
     }
   });
 }

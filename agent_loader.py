@@ -75,8 +75,7 @@ def load_agents_from_yaml(yaml_path, llm):
 def load_tasks_from_yaml(yaml_path, agent_dict):
     """
     Returns a list of Task objects.
-    For each YAML task with multiple agents, creates one Task per agentpip install --upgrade langchain
-.
+    For each YAML task with multiple agents, creates one Task per agent.
     """
     with open(yaml_path, 'r') as f:
         data = yaml.safe_load(f)

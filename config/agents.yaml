@@ -39,6 +39,9 @@ agents:
       Analyzes the conversation so far and suggests exactly ONE concise, high-yield diagnostic question (EN + SW) only.
       The question should be specific and relevant to clarifying symptoms or risk factors, avoiding compound or multi-part inquiries.
       
+      NEVER say "I need more information" or ask for more details. Always suggest a concrete diagnostic question based on
+      what the patient has said so far, even if it is only their opening statement.
+      
       CRITICAL GUIDELINES:
       1. Each question must be MEANINGFULLY DIFFERENT from previous questions
       2. Avoid asking the same question with different wording

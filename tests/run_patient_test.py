@@ -60,7 +60,17 @@ def main():
 
     patients = list_patients_for_user(user_id)
     print(f"List: patients count={len(patients)}, ids={[p.id for p in patients]}")
-    plabels = {p.id: f"Patient {i + 1}" for i, p in enumerate(patients)}
+    ordered = sorted(patients, key=lambda p: p.id)
+    plabels = {}
+    for i, p in enumerate(ordered):
+        ordinal = i + 1
+        ident = (getattr(p, "identifier", None) or "").strip()
+        disp = (getattr(p, "display_name", None) or "").strip()
+        if ident:
+            base = ident + (f" — {disp}" if disp else "")
+            plabels[p.id] = f"{base} (Patient {ordinal})"
+        else:
+            plabels[p.id] = f"Patient {ordinal}"
     print(f"plabels={plabels}")
 
     pid = c.patient_id
@@ -69,10 +79,10 @@ def main():
         patient_label = "Patient"
     print(f"patient_label={patient_label!r}")
 
-    if patient_label != "Patient 1":
-        print("FAIL: expected 'Patient 1'")
+    if ("Patient 1" not in patient_label) or ("P001" not in patient_label):
+        print("FAIL: expected label containing 'P001' and 'Patient 1'")
         return 1
-    print("PASS: patient label is 'Patient 1'")
+    print("PASS: patient label contains identifier + ordinal")
 
     # Test update path
     cid2 = create_conversation(owner_user_id=user_id, patient_id=None)

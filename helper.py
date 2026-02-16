@@ -4,8 +4,7 @@ import re
 from docx import Document
 from dotenv import load_dotenv, find_dotenv
 from langdetect import detect
-import pyttsx3
-import speech_recognition as sr
+# pyttsx3, speech_recognition: optional - only for speak()/listen(); imported lazily
 
 # === ENV HANDLING ===
 def load_env():
@@ -206,6 +205,7 @@ def label_red_flags(case_data):
 
 # === SPEECH TO TEXT ===
 def speak(text, language_hint="en"):
+    import pyttsx3
     engine = pyttsx3.init()
     engine.setProperty('rate', 160)
     chosen = None

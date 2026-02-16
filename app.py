@@ -33,6 +33,7 @@ from models import (
     get_conversation_if_owned_by,
     get_conversation_messages,
     delete_conversation_if_owned_by,
+    update_conversation_patient,
     list_patients_for_user,
     create_patient,
     get_patient,
@@ -42,7 +43,7 @@ from flask_sock import Sock
 
 # Auth/Admin
 from auth import auth_bp, login_manager
-from admin import admin_bp, delete_conversation as admin_delete_conversation
+from admin import admin_bp, delete_conversation as admin_delete_conversation, admin_create_patient
 
 # ✅ Gemini STT blueprint + WS routes
 from stt_gemini import stt_bp, register_ws_routes
@@ -73,6 +74,7 @@ sock = Sock(app)
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 csrf.exempt(admin_delete_conversation)  # DELETE /admin/api/conversation/<id> — admin-only, no CSRF in fetch
+csrf.exempt(admin_create_patient)       # POST /admin/api/patients — admin create patient
 
 # -----------------------------------------------------------------------------
 # ✅ Gemini STT registration (Gemini-only)
@@ -235,7 +237,17 @@ def agent_chat_stream():
             logger.exception("DB log failed")
 
     # Pick the streaming generator
-    if mode == "simulated":
+    # When Finalize is clicked, use real_actor (or live) to summarize - simulate has no Finalize path
+    if role == "finalize":
+        generator = real_actor_chat_stepwise(
+            unquote(message),
+            language_mode=language,
+            speaker_role=role,
+            conversation_history=conv,
+            log_hook=log_hook,
+            session_id=sid,
+        )
+    elif mode == "simulated":
         generator = simulate_agent_chat_stepwise(
             unquote(message),
             language_mode=language,
@@ -261,7 +273,11 @@ def agent_chat_stream():
             session_id=sid,
         )
 
-    return Response(stream_with_context(generator), mimetype="text/event-stream")
+    resp = Response(stream_with_context(generator), mimetype="text/event-stream")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["X-Accel-Buffering"] = "no"
+    resp.headers["Connection"] = "keep-alive"
+    return resp
 
 
 # -----------------------------------------------------------------------------
@@ -621,10 +637,28 @@ def _patients_display_order():
     return sorted(patients, key=lambda p: p.id)
 
 
-def _patient_labels_for_current_user():
-    """Stable mapping patient_id -> 'Patient 1', 'Patient 2', ... (same order as dropdown)."""
+def _patient_display_labels_for_current_user():
+    """
+    Stable mapping patient_id -> display label, aligned across the app.
+
+    Primary identifier: patients.identifier (e.g. P010)
+    Secondary hint: ordinal (Patient N) to preserve existing mental model
+    """
     ordered = _patients_display_order()
-    return {p.id: f"Patient {i + 1}" for i, p in enumerate(ordered)}
+    out = {}
+    for i, p in enumerate(ordered):
+        ordinal = i + 1
+        ident = (getattr(p, "identifier", None) or "").strip()
+        disp = (getattr(p, "display_name", None) or "").strip()
+        if ident:
+            base = ident
+            if disp:
+                base = f"{base} — {disp}"
+            out[p.id] = f"{base} (Patient {ordinal})"
+        else:
+            # fallback to legacy label style if identifier is missing
+            out[p.id] = f"Patient {ordinal}"
+    return out
 
 
 @app.route("/api/my-conversations")
@@ -632,7 +666,7 @@ def _patient_labels_for_current_user():
 def api_my_conversations():
     """List current user's conversations (id, created_at, patient, message_count). Excludes empty conversations."""
     convos = list_conversations_for_user(current_user.id)
-    plabels = _patient_labels_for_current_user()
+    plabels = _patient_display_labels_for_current_user()
     out = []
     for c in convos:
         msgs = get_conversation_messages(c.id)
@@ -665,7 +699,7 @@ def api_conversation_messages(conversation_id):
     if c is None:
         return jsonify({"ok": False, "error": "Not found or access denied"}), 403
     msgs = get_conversation_messages(conversation_id)
-    plabels = _patient_labels_for_current_user()
+    plabels = _patient_display_labels_for_current_user()
     out = [
         {
             "id": m.id,
@@ -713,11 +747,25 @@ def api_session_patient():
     pid = data.get("patient_id")
     if pid is None:
         session.pop("patient_id", None)
+        # If a conversation is already active, detach patient from it too
+        try:
+            cid = session.get("id")
+            if cid:
+                update_conversation_patient(cid, current_user.id, None)
+        except Exception:
+            logger.exception("Failed to clear conversation patient_id")
     else:
         try:
             session["patient_id"] = int(pid)
         except (TypeError, ValueError):
             session.pop("patient_id", None)
+        # If a conversation is already active, link it immediately
+        try:
+            cid = session.get("id")
+            if cid and session.get("patient_id") is not None:
+                update_conversation_patient(cid, current_user.id, int(session["patient_id"]))
+        except Exception:
+            logger.exception("Failed to update conversation patient_id")
     return jsonify({"ok": True})
 
 
@@ -753,6 +801,7 @@ def new_conversation():
 # -----------------------------------------------------------------------------
 # Patients API (for clinician: list & create)
 # -----------------------------------------------------------------------------
+@csrf.exempt
 @app.route("/api/patients", methods=["GET", "POST"])
 @login_required
 def api_patients():
@@ -767,10 +816,17 @@ def api_patients():
         return jsonify({"ok": True, "patient_id": pid})
     # Same order as history (single source of truth)
     ordered = _patients_display_order()
-    out = [
-        {"id": p.id, "label": f"Patient {i+1}", "created_at": p.created_at.isoformat() if p.created_at else None}
-        for i, p in enumerate(ordered)
-    ]
+    labels = _patient_display_labels_for_current_user()
+    out = []
+    for i, p in enumerate(ordered):
+        out.append({
+            "id": p.id,
+            "identifier": (p.identifier or "").strip() or None,
+            "display_name": (p.display_name or "").strip() or None,
+            "ordinal": i + 1,
+            "label": labels.get(p.id) or f"Patient {i + 1}",
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        })
     return jsonify({"ok": True, "patients": out})
 
 
@@ -803,7 +859,7 @@ def history_detail_page(conversation_id):
     if c is None:
         return "Not found or access denied", 404
     msgs = get_conversation_messages(conversation_id)
-    plabels = _patient_labels_for_current_user()
+    plabels = _patient_display_labels_for_current_user()
     pid = c.patient_id if c.patient_id is not None else (c.patient.id if getattr(c, "patient", None) else None)
     patient_label = plabels.get(int(pid)) if pid is not None else None
     if pid is not None and not patient_label:

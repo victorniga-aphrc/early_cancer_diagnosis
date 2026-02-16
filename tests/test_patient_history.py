@@ -31,8 +31,19 @@ from models import (
 
 
 def _build_patient_labels(patients):
-    """Same logic as app._patient_labels_for_current_user (newest first)."""
-    return {p.id: f"Patient {i + 1}" for i, p in enumerate(patients)}
+    """Same spirit as app._patient_display_labels_for_current_user (stable order by id)."""
+    ordered = sorted(patients, key=lambda p: p.id)
+    out = {}
+    for i, p in enumerate(ordered):
+        ordinal = i + 1
+        ident = (getattr(p, "identifier", None) or "").strip()
+        disp = (getattr(p, "display_name", None) or "").strip()
+        if ident:
+            base = ident + (f" — {disp}" if disp else "")
+            out[p.id] = f"{base} (Patient {ordinal})"
+        else:
+            out[p.id] = f"Patient {ordinal}"
+    return out
 
 
 def _patient_label_for_conversation(conversation, plabels):
@@ -45,7 +56,7 @@ def _patient_label_for_conversation(conversation, plabels):
 
 
 def test_conversation_with_patient_shows_patient_label():
-    """Create user, patient, conversation with patient_id; list should return 'Patient 1'."""
+    """Create user, patient, conversation with patient_id; label should include identifier and ordinal."""
     init_db()
 
     db = SessionLocal()
@@ -92,11 +103,12 @@ def test_conversation_with_patient_shows_patient_label():
     assert len(patients) >= 1
     plabels = _build_patient_labels(patients)
     assert patient_id in plabels
-    assert plabels[patient_id] == "Patient 1"
+    assert "P001" in plabels[patient_id]
+    assert "Patient 1" in plabels[patient_id]
 
     patient_label = _patient_label_for_conversation(c, plabels)
-    assert patient_label == "Patient 1", (
-        f"Expected 'Patient 1', got patient_id={c.patient_id!r} plabels={plabels} label={patient_label!r}"
+    assert "P001" in patient_label and "Patient 1" in patient_label, (
+        f"Expected label containing identifier + ordinal, got patient_id={c.patient_id!r} plabels={plabels} label={patient_label!r}"
     )
 
 
@@ -141,4 +153,4 @@ def test_update_conversation_patient_then_list_shows_label():
     patients = list_patients_for_user(user_id)
     plabels = _build_patient_labels(patients)
     label = _patient_label_for_conversation(c, plabels)
-    assert label == "Patient 1" or label == "Patient 2", f"Expected numbered label, got {label!r}"
+    assert "Patient 1" in label or "Patient 2" in label, f"Expected numbered label, got {label!r}"

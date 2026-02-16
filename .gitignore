@@ -7,6 +7,7 @@ __pycache__/
 *.pyd
 .venv/
 venv/
+supervisor_code/
 
 ############################
 # IDE / Editor
@@ -19,6 +20,12 @@ venv/
 ############################
 .env
 .env.*
+
+############################
+# Zip script (optional local tool)
+############################
+zip_project.py
+CHANGELOG.md
 
 ############################
 # Databases / Indexes
@@ -39,9 +46,10 @@ Thumbs.db
 
 ############################
 # Markdown (docs)
-# Keep README.md, ignore others
+# Keep README.md and CHANGELOG.md, ignore other *.md
 ############################
 *.md
 !README.md
+!CHANGELOG.md
 
 

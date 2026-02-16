@@ -450,8 +450,13 @@ def sse_recommender(english, swahili, log_hook=None, session_id=None):
 # Mode 1: Fully simulated
 def simulate_agent_chat_stepwise(initial_message: str, turns: int = 6, language_mode: str = 'bilingual', log_hook=None,
                                  session_id=None):
-    llm = load_llm()
-    agents = load_agents_from_yaml(AGENT_PATH, llm)
+    try:
+        llm = load_llm()
+        agents = load_agents_from_yaml(AGENT_PATH, llm)
+    except Exception as e:
+        logger.exception("Failed to load LLM/agents in simulated mode")
+        yield sse_message("system", f"[Error: Could not initialize AI. Check OPENAI_API_KEY and terminal for details. {e}]", log_hook, session_id)
+        return
 
     # FIRST: yield the patient's seed so we always log at least one row
     yield sse_message("Patient", initial_message, log_hook, session_id)
@@ -473,18 +478,27 @@ def simulate_agent_chat_stepwise(initial_message: str, turns: int = 6, language_
 
     for turn in range(turns):
         # question recommender
+        first_turn_note = "" if turn > 0 else (
+            " This is the FIRST question - the patient has just presented. You MUST suggest a specific diagnostic question "
+            "based on their opening statement. Do NOT say you need more information or ask for details - use what they said.\n\n"
+        )
         if language_mode == "english":
             recommender_input = "\n".join(
-                context_log) + "\n\nSuggest the next most relevant diagnostic question. Format: English: ..."
+                context_log) + f"\n\n{first_turn_note}Suggest the next most relevant diagnostic question. Format: English: ..."
         elif language_mode == "swahili":
             recommender_input = "\n".join(
-                context_log) + "\n\nPendekeza swali fupi la uchunguzi linalofuata. Format: Swahili: ..."
+                context_log) + f"\n\n{first_turn_note}Pendekeza swali fupi la uchunguzi linalofuata. Format: Swahili: ..."
         else:
             recommender_input = "\n".join(
-                context_log) + "\n\nSuggest the next most relevant bilingual question only. Format as:\nEnglish: ...\n\nSwahili: ..."
+                context_log) + f"\n\n{first_turn_note}Suggest the next most relevant bilingual question only. Format as:\nEnglish: ...\n\nSwahili: ..."
 
-        recommended = run_task(agents["question_recommender_agent"], recommender_input,
-                               f"Question Suggestion {turn + 1}")
+        try:
+            recommended = run_task(agents["question_recommender_agent"], recommender_input,
+                                   f"Question Suggestion {turn + 1}")
+        except Exception as e:
+            logger.exception("Question recommender failed in simulated mode turn %s", turn + 1)
+            yield sse_message("system", f"[Error: AI failed on this turn. {e}]", log_hook, session_id)
+            return
 
         if language_mode == "english":
             english_q, swahili_q = recommended.strip(), ""
@@ -516,7 +530,12 @@ def simulate_agent_chat_stepwise(initial_message: str, turns: int = 6, language_
         else:
             patient_input = f"Clinician: English: {english_q} Swahili: {swahili_q}\n\nRespond as the patient. Answer both languages if possible. Be short and realistic."
 
-        patient_response = run_task(agents["patient_agent"], patient_input, f"Patient Response {turn + 1}")
+        try:
+            patient_response = run_task(agents["patient_agent"], patient_input, f"Patient Response {turn + 1}")
+        except Exception as e:
+            logger.exception("Patient agent failed in simulated mode turn %s", turn + 1)
+            yield sse_message("system", f"[Error: AI failed on patient response. {e}]", log_hook, session_id)
+            return
         yield sse_message("Patient", patient_response, log_hook, session_id)
         context_log.append(f"Patient: {patient_response}")
 
@@ -572,13 +591,16 @@ def real_actor_chat_stepwise(initial_message: str, language_mode: str = 'bilingu
     if lower_role in ("patient", "clinician"):
         context_lines = [f"{m.get('role')}: {m.get('message')}" for m in history]
         context_text = "\n".join(context_lines)
-
+        first_turn_note = "" if len(history) > 2 else (
+            " This is the first or early turn - the patient has just presented. You MUST suggest a specific diagnostic question "
+            "based on what they said. Do NOT say you need more information or ask for details - use what they said.\n\n"
+        )
         if language_mode == "english":
-            recommender_input = context_text + "\n\nSuggest the next most relevant diagnostic question. Format: English: ..."
+            recommender_input = context_text + f"\n\n{first_turn_note}Suggest the next most relevant diagnostic question. Format: English: ..."
         elif language_mode == "swahili":
-            recommender_input = context_text + "\n\nPendekeza swali fupi la uchunguzi linalofuata. Format: Swahili: ..."
+            recommender_input = context_text + f"\n\n{first_turn_note}Pendekeza swali fupi la uchunguzi linalofuata. Format: Swahili: ..."
         else:
-            recommender_input = context_text + "\n\nSuggest the next most relevant bilingual question only. Format as:\nEnglish: ...\n\nSwahili: ..."
+            recommender_input = context_text + f"\n\n{first_turn_note}Suggest the next most relevant bilingual question only. Format as:\nEnglish: ...\n\nSwahili: ..."
 
         rec = run_task(agents["question_recommender_agent"], recommender_input, "Question Suggestion")
 
@@ -645,16 +667,23 @@ def live_transcription_stream(initial_message: str,
         return
     # ---------------------------------------------------------------
 
-    # 2) Build recommender context from full history
-    context_lines = [f"{m.get('role')}: {m.get('message')}" for m in history]
+    # 2) Build recommender context from full history (incl. current patient message for first turn)
+    # For first turn, history may not include the just-emitted patient line; include it in context
+    effective_history = list(history)
+    if not any((m.get("role") or "").lower() == "patient" and (m.get("message") or "").strip() == final_text.strip() for m in effective_history):
+        effective_history = [{"role": "Patient", "message": final_text}] + list(effective_history)
+    context_lines = [f"{m.get('role')}: {m.get('message')}" for m in effective_history]
     context_text = "\n".join(context_lines)
-
+    first_turn_note = "" if len(effective_history) > 2 else (
+        " This is the first or early turn - the patient has just presented. You MUST suggest a specific diagnostic question "
+        "based on what they said. Do NOT say you need more information or ask for details - use what they said.\n\n"
+    )
     if language_mode == "english":
-        recommender_input = context_text + "\n\nSuggest the next most relevant diagnostic question. Format: English: ..."
+        recommender_input = context_text + f"\n\n{first_turn_note}Suggest the next most relevant diagnostic question. Format: English: ..."
     elif language_mode == "swahili":
-        recommender_input = context_text + "\n\nPendekeza swali fupi la uchunguzi linalofuata. Format: Swahili: ..."
+        recommender_input = context_text + f"\n\n{first_turn_note}Pendekeza swali fupi la uchunguzi linalofuata. Format: Swahili: ..."
     else:
-        recommender_input = context_text + "\n\nSuggest the next most relevant bilingual question only. Format as:\nEnglish: ...\n\nSwahili: ..."
+        recommender_input = context_text + f"\n\n{first_turn_note}Suggest the next most relevant bilingual question only. Format as:\nEnglish: ...\n\nSwahili: ..."
 
     rec = run_task(agents["question_recommender_agent"], recommender_input, "Question Suggestion")
 

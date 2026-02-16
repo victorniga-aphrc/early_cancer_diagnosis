@@ -2,7 +2,7 @@
 import os
 import re
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer
+from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Integer, Float
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship, scoped_session, joinedload
 import uuid as _uuid
 
@@ -99,6 +99,21 @@ class Patient(Base):
 # Conversation -> Patient relationship (patient_id already on Conversation)
 Conversation.patient = relationship("Patient", back_populates="conversations")
 
+class ConversationDiseaseLikelihood(Base):
+    """
+    Persisted analytics snapshot for a conversation.
+    One row per conversation; overwritten on re-analyze.
+    """
+    __tablename__ = "conversation_disease_likelihoods"
+    conversation_id = Column(String, ForeignKey("conversations.id"), primary_key=True)
+    analyzed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    cancer_likelihood_pct = Column(Float, nullable=True)
+    symptoms_json = Column(Text, nullable=True)       # JSON string
+    top_diseases_json = Column(Text, nullable=True)   # JSON string
+    faiss_matches_json = Column(Text, nullable=True)  # JSON string
+    patient_label = Column(Text, nullable=True)
+    clinician_label = Column(Text, nullable=True)
+
 
 # --- Init / helpers ---
 def _migrate_add_patient_fk():
@@ -127,11 +142,18 @@ def _migrate_add_user_username():
             conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(64)"))
             conn.commit()
 
+def _migrate_add_conversation_disease_likelihoods():
+    """Ensure conversation_disease_likelihoods table exists (for existing DBs)."""
+    from sqlalchemy import inspect
+    insp = inspect(engine)
+    if "conversation_disease_likelihoods" not in insp.get_table_names():
+        Base.metadata.tables["conversation_disease_likelihoods"].create(engine, checkfirst=True)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
     _migrate_add_patient_fk()
     _migrate_add_user_username()
+    _migrate_add_conversation_disease_likelihoods()
     _seed_roles()
 
 def _seed_roles():
