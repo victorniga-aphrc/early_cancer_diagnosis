@@ -157,16 +157,24 @@
           </select>
         </div>
 
-        <!-- Patient Selector -->
+        <!-- Patient Identifier (manual entry) -->
         <div class="controls-row-inline">
-          <select id="patientSelect" class="custom-select custom-select-small" style="flex:1">
-            <option value="">-- No Patient --</option>
-          </select>
-          <button type="button" id="newPatientBtn" class="btn-orange-outline">
-            <i data-lucide="plus" style="width:10px;height:10px"></i>
-            Patient
+          <input
+            id="patientIdentifierInput"
+            type="text"
+            class="chat-input-field"
+            style="flex:1;height:34px"
+            placeholder="Patient number (e.g., P001 or 001)"
+            aria-label="Patient number"
+          >
+          <button type="button" id="setPatientBtn" class="btn-orange-outline">
+            <i data-lucide="check" style="width:10px;height:10px"></i>
+            Set
           </button>
         </div>
+        <p style="font-size:0.72rem;color:var(--gray-500);margin:2px 0 0 2px">
+          Example format: <strong>P001</strong> (you can also type <strong>001</strong>)
+        </p>
 
         <!-- Turn-based Pane -->
         <div id="turnPane">
@@ -249,6 +257,7 @@
               <span>&#9632;</span> Stop
             </button>
           </div>
+          <div id="liveStatus" style="font-size:0.75rem;color:var(--gray-500);min-height:1.2em;margin-top:4px;text-align:center"></div>
 
           <div>
             <label style="font-size:0.75rem;font-weight:500;color:var(--gray-600);display:block;margin-bottom:6px">Live Line</label>

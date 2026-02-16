@@ -795,6 +795,115 @@ mark {
   margin: 8px 0;
 }
 
+/* ---- Search Result Cards ---- */
+.search-case-card {
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #d1eabf;
+  border-left: 4px solid var(--primary-green);
+  border-radius: 10px;
+  margin: 6px 0;
+}
+
+.search-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.search-case-id {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--primary-green);
+}
+
+.search-score-badge {
+  background: #e8f5e9;
+  color: #388e3c;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid #c8e6c9;
+}
+
+.search-tag {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.search-tag.illness {
+  background: #e3f2fd;
+  color: #1565c0;
+  border: 1px solid #bbdefb;
+}
+
+.search-tag.red-flag {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffe0b2;
+}
+
+.search-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.search-opening-statement {
+  font-size: 0.85rem;
+  color: var(--gray-600);
+  font-style: italic;
+  background: #f9fbe7;
+  border-left: 3px solid #aed581;
+  padding: 6px 10px;
+  border-radius: 0 6px 6px 0;
+  margin-bottom: 10px;
+}
+
+.search-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-section {
+  font-size: 0.8rem;
+  color: var(--gray-700);
+}
+
+.search-section p {
+  margin: 3px 0 0 0;
+  line-height: 1.5;
+}
+
+.search-section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gray-500);
+}
+
+.search-question-list {
+  margin: 4px 0 0 0;
+  padding-left: 16px;
+  line-height: 1.7;
+  font-size: 0.8rem;
+}
+
+.search-question-list li {
+  color: var(--gray-700);
+}
+
 .message-header {
   display: flex;
   align-items: center;

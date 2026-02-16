@@ -11,10 +11,10 @@ document.addEventListener("DOMContentLoaded", () => {
   let messageCount = 0;
   window.lastSuggestion = null; // Store last suggestion to show when switching to Clinician
 
-  // Helper function to highlight search terms in text
+  // Helper function to highlight search terms in text.
   function highlightSearchTerms(text, searchQuery) {
     if (text == null) return '';
-    // Normalize to string to avoid runtime errors when API returns objects
+    // Normalize to string to avoid runtime errors when API returns objects.
     if (typeof text !== 'string') {
       try {
         text = JSON.stringify(text);
@@ -32,6 +32,123 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Replace matches with highlighted version
     return text.replace(regex, '<mark>$1</mark>');
+  }
+
+  // Safely extract a plain string from values that may be bilingual objects.
+  function extractText(field) {
+    if (field == null) return '';
+    if (typeof field === 'string') return field;
+    if (typeof field === 'object') return field.english || field.swahili || '';
+    return String(field);
+  }
+
+  function renderSearchResults(data, query) {
+    if (!transcriptDiv) return;
+
+    const prevCards = transcriptDiv.querySelectorAll('.search-results-card');
+    const removedCount = prevCards.length;
+    prevCards.forEach(el => el.remove());
+    messageCount -= removedCount;
+    if (messageCountEl) messageCountEl.textContent = `${messageCount} messages`;
+
+    const results = data.results || [];
+    const nowText = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (results.length === 0) {
+      const emptyEl = document.createElement('div');
+      emptyEl.className = 'message system search-results-card';
+      emptyEl.innerHTML = `
+        <div class="message-header">
+          <span class="message-icon system"><i data-lucide="search"></i></span>
+          <span class="message-role system">Search</span>
+          <span class="message-time system">${nowText}</span>
+        </div>
+        <p class="message-text" style="color:var(--gray-500);font-style:italic;">
+          No similar cases found for <strong>"${query}"</strong>. Try more specific symptoms.
+        </p>
+      `;
+      transcriptDiv.appendChild(emptyEl);
+      if (typeof lucide !== 'undefined') lucide.createIcons({ node: emptyEl });
+      messageCount++;
+      if (messageCountEl) messageCountEl.textContent = `${messageCount} messages`;
+      transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+      return;
+    }
+
+    const headerEl = document.createElement('div');
+    headerEl.className = 'message system search-results-card';
+    headerEl.innerHTML = `
+      <div class="message-header">
+        <span class="message-icon system"><i data-lucide="search"></i></span>
+        <span class="message-role system">Search Results</span>
+        <span class="message-time system">${nowText}</span>
+      </div>
+      <p class="message-text">
+        Found <strong>${results.length}</strong> case${results.length !== 1 ? 's' : ''} for
+        <strong>"${query}"</strong>
+      </p>
+    `;
+    transcriptDiv.appendChild(headerEl);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ node: headerEl });
+    messageCount++;
+
+    results.forEach((result) => {
+      try {
+        const bg = extractText(result.patient_background);
+        const cc = extractText(result.chief_complaint);
+        const mh = extractText(result.medical_history);
+        const os = extractText(result.opening_statement);
+        const illness = extractText(result.Suspected_illness);
+        const score = (Number(result.similarity_score || 0) * 100).toFixed(1);
+
+        let redFlagsHtml = '';
+        if (result.red_flags && Object.keys(result.red_flags).length > 0) {
+          const flags = Object.entries(result.red_flags)
+            .map(([k, v]) => `<span class="search-tag red-flag"><i data-lucide="alert-triangle" style="width:10px;height:10px;margin-right:3px;"></i>${k}: ${v}</span>`)
+            .join('');
+          redFlagsHtml = `<div class="search-tags" style="margin-top:6px;">${flags}</div>`;
+        }
+
+        let questionsHtml = '';
+        if (Array.isArray(result.recommended_questions) && result.recommended_questions.length > 0) {
+          const qItems = result.recommended_questions.slice(0, 5).map((q) => {
+            const qt = extractText(q?.question) || extractText(q);
+            return `<li>${highlightSearchTerms(qt, query)}</li>`;
+          }).join('');
+          questionsHtml = `
+            <div class="search-section">
+              <span class="search-section-label"><i data-lucide="message-circle" style="width:11px;height:11px"></i> Recommended Questions</span>
+              <ul class="search-question-list">${qItems}</ul>
+            </div>
+          `;
+        }
+
+        const cardEl = document.createElement('div');
+        cardEl.className = 'message system search-results-card search-case-card';
+        cardEl.innerHTML = `
+          <div class="search-card-header">
+            <span class="search-case-id">Case ${result.case_id}</span>
+            <span class="search-score-badge">${score}% match</span>
+            ${illness && illness.trim() ? `<span class="search-tag illness">${illness}</span>` : ''}
+          </div>
+          ${os ? `<div class="search-opening-statement">"${highlightSearchTerms(os, query)}"</div>` : ''}
+          <div class="search-fields">
+            ${bg ? `<div class="search-section"><span class="search-section-label"><i data-lucide="user" style="width:11px;height:11px"></i> Background</span><p>${highlightSearchTerms(bg, query)}</p></div>` : ''}
+            ${cc ? `<div class="search-section"><span class="search-section-label"><i data-lucide="activity" style="width:11px;height:11px"></i> Chief Complaint</span><p>${highlightSearchTerms(cc, query)}</p></div>` : ''}
+            ${mh ? `<div class="search-section"><span class="search-section-label"><i data-lucide="clipboard" style="width:11px;height:11px"></i> Medical History</span><p>${highlightSearchTerms(mh, query)}</p></div>` : ''}
+          </div>
+          ${redFlagsHtml}
+          ${questionsHtml}
+        `;
+        transcriptDiv.appendChild(cardEl);
+        if (typeof lucide !== 'undefined') lucide.createIcons({ node: cardEl });
+        messageCount++;
+      } catch (cardErr) {
+        console.error('Error rendering search card:', cardErr, result);
+      }
+    });
+
+    if (messageCountEl) messageCountEl.textContent = `${messageCount} messages`;
+    transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
   }
 
   // DOM Elements
@@ -166,6 +283,11 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
+      const originalHtml = searchBtn.innerHTML;
+      searchBtn.disabled = true;
+      searchBtn.innerHTML = '<i data-lucide="loader" style="width:14px;height:14px"></i> Searching...';
+      if (typeof lucide !== 'undefined') lucide.createIcons({ node: searchBtn });
+
       try {
         const response = await fetch('/search', {
           method: 'POST',
@@ -182,51 +304,7 @@ document.addEventListener("DOMContentLoaded", () => {
           throw new Error(text || 'Search failed');
         }
         if (!response.ok) throw new Error(data?.error || 'Search failed');
-
-        // Clear previous search results from transcript
-        if (transcriptDiv) {
-          const systemMessages = transcriptDiv.querySelectorAll('.message.system');
-          const removedCount = systemMessages.length;
-          systemMessages.forEach(msg => msg.remove());
-          messageCount -= removedCount;
-          if (messageCountEl) messageCountEl.textContent = `${messageCount} messages`;
-        }
-
-        // Add search results to transcript
-        if (data.results?.length > 0) {
-          let resultsMessage = `**Search Results for "${query}"**\n\n`;
-          data.results.forEach((result, index) => {
-            resultsMessage += `**Case ${result.case_id}:** (Similarity: ${(result.similarity_score * 100).toFixed(1)}%)\n`;
-            resultsMessage += `**Patient Background:** ${highlightSearchTerms(result.patient_background?.english || result.patient_background || 'N/A', query)}\n`;
-            resultsMessage += `**Chief Complaint:** ${highlightSearchTerms(result.chief_complaint?.english || result.chief_complaint || 'N/A', query)}\n`;
-            resultsMessage += `**Medical History:** ${highlightSearchTerms(result.medical_history?.english || result.medical_history || 'N/A', query)}\n`;
-            resultsMessage += `**Opening Statement:** ${highlightSearchTerms(result.opening_statement?.english || result.opening_statement || 'N/A', query)}\n`;
-            resultsMessage += `**Suspected Illness:** ${result.Suspected_illness || 'N/A'}\n`;
-            if (result.red_flags && Object.keys(result.red_flags).length > 0) {
-              resultsMessage += `**Red Flags:** ${Object.entries(result.red_flags).map(([key, value]) => `${key}: ${value}`).join(', ')}\n`;
-            }
-            if (result.recommended_questions?.length > 0) {
-              resultsMessage += `**Recommended Questions:**\n`;
-              result.recommended_questions.slice(0, 5).forEach(q => {
-                const questionText = q?.question?.english || q?.english || q?.question || q;
-                resultsMessage += `• ${highlightSearchTerms(questionText, query)}\n`;
-              });
-            }
-            resultsMessage += `\n`;
-          });
-          addMessageToTranscript('system', resultsMessage);
-        } else {
-          // Always show feedback (avoid "nothing happens" UX)
-          const msg =
-            `**Search Results for "${query}"**\n\n` +
-            `No similar cases found.\n\n` +
-            `Try:\n` +
-            `• Using more specific symptoms (e.g. "headache fever nausea")\n` +
-            `• Adding more context (duration, location, severity)\n` +
-            `• Increasing max results\n` +
-            `• Lowering the similarity threshold (if you expose it in UI)\n`;
-          addMessageToTranscript('system', msg);
-        }
+        renderSearchResults(data, query);
 
         // Update suggested questions
         if (data.suggested_questions?.length > 0) {
@@ -240,7 +318,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       } catch (error) {
         console.error('Search error:', error);
-        alert('Search failed. Please try again.');
+        alert(error?.message || 'Search failed. Please try again.');
+      } finally {
+        searchBtn.disabled = false;
+        searchBtn.innerHTML = originalHtml;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ node: searchBtn });
       }
     });
   }
@@ -249,13 +331,28 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastSentMessage = null;
   let lastSentRole = null;
 
+  // Ensure patient from manual input is synced before any request that creates/uses a conversation.
+  async function ensurePatientSyncedBeforeSend() {
+    const identInput = document.getElementById('patientIdentifierInput');
+    const rawIdent = (identInput?.value || '').trim();
+    if (rawIdent && !currentSessionPatientId) {
+      try {
+        await syncSessionPatient({ patientIdentifier: rawIdent });
+      } catch (e) {
+        // Don't block send; user can fix and retry
+      }
+    }
+  }
+
   // Send Message
-  function sendMessage() {
+  async function sendMessage() {
     const message = agentMessage?.value.trim();
     if (!message) {
       alert('Please enter a message');
       return;
     }
+
+    await ensurePatientSyncedBeforeSend();
 
     const language = languageMode?.value || 'bilingual';
     const mode = chatMode?.value || 'real';
@@ -421,10 +518,18 @@ document.addEventListener("DOMContentLoaded", () => {
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
       try {
+        // Resolve manually entered patient number before creating a fresh conversation.
+        const identInput = document.getElementById('patientIdentifierInput');
+        const rawIdent = (identInput?.value || '').trim();
+        if (rawIdent && !currentSessionPatientId) {
+          await syncSessionPatient({ patientIdentifier: rawIdent });
+        }
+
         await fetch('/reset_conv', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRFToken': (window.CSRF_TOKEN || '') },
-          credentials: 'same-origin'
+          credentials: 'same-origin',
+          body: JSON.stringify(currentSessionPatientId ? { patient_id: currentSessionPatientId } : {})
         });
 
         await fetch('/live/reset_plan', {
@@ -1148,38 +1253,54 @@ async function startLive() {
         transcriptEl.scrollTop = transcriptEl.scrollHeight;
       }
 
-      // Get recommendations
-      const es = new EventSource(`/agent_chat_stream?message=${encodeURIComponent(text)}&lang=${encodeURIComponent(uiLang)}&role=patient&mode=live`);
-      es.onmessage = (event) => {
-        let item;
-        try { item = JSON.parse(event.data); } catch { return; }
-        if ((item.role || '').toLowerCase() === 'patient') return;
-
-        if (item.type === 'question_recommender' && getLiveRecoMode() === 'normal') {
-          const englishText = item.question?.english || '';
-          const swahiliText = item.question?.swahili || '';
-          const questionText = englishText || swahiliText;
-          const isSwahili = !englishText && swahiliText;
-
-          // Always store the suggestion (with Swahili flag)
-          window.lastSuggestion = { text: questionText, isSwahili };
-
-          // Only show if Clinician tab is active
-          const isClinicianActive = document.getElementById('roleClinicianBtn')?.classList.contains('active-clinician');
-          if (!isClinicianActive) return;
-
-          const questionTextEl = document.getElementById('suggestionText');
-          const suggestionBoxEl = document.getElementById('suggestionBox');
-
-          if (questionText && questionTextEl && suggestionBoxEl) {
-            // Swahili in italics
-            questionTextEl.innerHTML = isSwahili ? `<em>${questionText}</em>` : questionText;
-            suggestionBoxEl.classList.remove('hidden');
-          }
+      // Sync patient from input before agent_chat_stream creates/uses conversation
+      (async () => {
+        const identInput = document.getElementById('patientIdentifierInput');
+        const rawIdent = (identInput?.value || '').trim();
+        if (rawIdent && !currentSessionPatientId) {
+          try { await syncSessionPatient({ patientIdentifier: rawIdent }); } catch (e) {}
         }
-      };
-      es.onerror = () => es.close();
-      setTimeout(() => es.close(), 8000);
+        const es = new EventSource(`/agent_chat_stream?message=${encodeURIComponent(text)}&lang=${encodeURIComponent(uiLang)}&role=patient&mode=live`);
+        es.onmessage = (event) => {
+          let item;
+          try { item = JSON.parse(event.data); } catch { return; }
+          if ((item.role || '').toLowerCase() === 'patient') return;
+
+          if (item.type === 'question_recommender') {
+            const englishText = item.question?.english || '';
+            const swahiliText = item.question?.swahili || '';
+            const questionText = englishText || swahiliText;
+            const isSwahili = !englishText && swahiliText;
+            if (getLiveRecoMode() === 'unasked') {
+              // In unasked mode, store recommendations on server but don't interrupt UI.
+              if (questionText) {
+                const fullText = (englishText && swahiliText)
+                  ? `${englishText} / ${swahiliText}`
+                  : questionText;
+                fetch('/live/plan', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-CSRFToken': (window.CSRF_TOKEN || '') },
+                  credentials: 'same-origin',
+                  body: JSON.stringify({ required: [{ id: String(Date.now()), text: fullText }] })
+                }).catch(err => console.warn('live/plan store error:', err));
+              }
+            } else {
+              // Normal mode keeps the existing suggestion box behavior.
+              window.lastSuggestion = { text: questionText, isSwahili };
+              const isClinicianActive = document.getElementById('roleClinicianBtn')?.classList.contains('active-clinician');
+              if (!isClinicianActive) return;
+              const questionTextEl = document.getElementById('suggestionText');
+              const suggestionBoxEl = document.getElementById('suggestionBox');
+              if (questionText && questionTextEl && suggestionBoxEl) {
+                questionTextEl.innerHTML = isSwahili ? `<em>${questionText}</em>` : questionText;
+                suggestionBoxEl.classList.remove('hidden');
+              }
+            }
+          }
+        };
+        es.onerror = () => es.close();
+        setTimeout(() => es.close(), 8000);
+      })();
     }
   };
 
@@ -1227,6 +1348,129 @@ async function stopLive() {
   liveMediaStream = null;
   liveRecorder = null;
   liveWS = null;
+
+  // In "Unasked (end-only)" mode, fetch one consolidated bundle on stop.
+  const recoMode = getLiveRecoMode();
+  if (recoMode === 'unasked') {
+    const uiLang = document.getElementById('languageMode')?.value || 'bilingual';
+    if (liveMessage) liveMessage.textContent = 'Generating summary and unasked questions...';
+    try {
+      const res = await fetch('/live/stop_bundle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': (window.CSRF_TOKEN || '') },
+        credentials: 'same-origin',
+        body: JSON.stringify({ lang: uiLang })
+      });
+      if (!res.ok) throw new Error(`stop_bundle HTTP ${res.status}`);
+      const bundle = await res.json();
+      showUnaskedModal(bundle.unasked || []);
+      populateLiveStopPanel(bundle);
+    } catch (err) {
+      console.error('stopLive bundle error:', err);
+    } finally {
+      if (liveMessage) liveMessage.textContent = 'Partials appear here.';
+    }
+  }
+}
+
+function showUnaskedModal(unasked) {
+  const listEl = document.getElementById('unasked-list');
+  if (!listEl) return;
+
+  if (!Array.isArray(unasked) || unasked.length === 0) {
+    listEl.innerHTML = '<p class="text-muted" style="padding:8px 0">No unasked questions recorded for this session.</p>';
+  } else {
+    listEl.innerHTML = unasked.map((item, i) => {
+      const q = typeof item === 'string' ? item : (item.question || '');
+      const score = (typeof item === 'object' && item.score != null)
+        ? `<span class="badge bg-secondary ms-2" style="font-size:0.7rem;vertical-align:middle">${parseFloat(item.score).toFixed(2)}</span>`
+        : '';
+      return `<div class="mb-2" style="padding:6px 0;border-bottom:1px solid #f0f0f0">
+                <span class="fw-semibold" style="color:var(--primary-orange,#f97316)">${i + 1}.</span>
+                <span style="margin-left:6px">${q}</span>${score}
+              </div>`;
+    }).join('');
+  }
+
+  const modalEl = document.getElementById('unaskedModal');
+  if (!modalEl) return;
+  if (typeof bootstrap !== 'undefined') {
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  } else {
+    modalEl.style.display = 'block';
+    modalEl.classList.add('show');
+    document.body.classList.add('modal-open');
+  }
+}
+
+function populateLiveStopPanel(bundle) {
+  const panelRight = document.getElementById('panel-right');
+  const resizeRight = document.getElementById('resize-right');
+  panelRight?.classList.remove('hidden');
+  resizeRight?.classList.remove('hidden');
+
+  const listenerMsg = (bundle.listener && bundle.listener.message) ? bundle.listener.message : '';
+  const unasked = bundle.unasked || [];
+
+  const patientSummary = document.getElementById('patientSummary');
+  if (patientSummary) {
+    if (listenerMsg) {
+      patientSummary.innerHTML = listenerMsg
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+    } else {
+      patientSummary.innerHTML = '<em>No listener summary available for this session.</em>';
+    }
+  }
+
+  const keyFindings = document.getElementById('keyFindings');
+  if (keyFindings && listenerMsg) {
+    const lines = listenerMsg.split('\n').filter(l => l.trim().startsWith('-'));
+    if (lines.length > 0) {
+      keyFindings.innerHTML = lines.slice(0, 5)
+        .map(l => `<li><span class="bullet">&bull;</span> ${l.replace(/^-\s*/, '')}</li>`)
+        .join('');
+    }
+  }
+
+  const recommendedPlan = document.getElementById('recommendedPlan');
+  if (recommendedPlan) {
+    let planHTML = '';
+    if (listenerMsg) {
+      const planLines = listenerMsg.split('\n')
+        .filter(l => l.trim().startsWith('-') || l.trim().match(/^Step\s*\d+/i));
+      planHTML = planLines.map(l => {
+        const clean = l.replace(/^-\s*/, '').replace(/^Step\s*\d+:\s*/i, '');
+        return `<li><span class="check">&#10003;</span> ${clean}</li>`;
+      }).join('');
+    }
+
+    if (unasked.length > 0) {
+      planHTML += `
+        <li style="margin-top:12px;list-style:none;padding-left:0">
+          <strong style="color:var(--primary-orange,#f97316)">Unasked Questions (ranked):</strong>
+          <ol style="margin-top:6px;padding-left:1.4em;color:var(--gray-700,#374151)">
+            ${unasked.slice(0, 10).map(item => {
+              const q = typeof item === 'string' ? item : (item.question || '');
+              const sc = (typeof item === 'object' && item.score != null)
+                ? ` <em style="font-size:0.75rem;color:var(--gray-500,#6b7280)">(${parseFloat(item.score).toFixed(2)})</em>`
+                : '';
+              return `<li style="margin-bottom:4px">${q}${sc}</li>`;
+            }).join('')}
+          </ol>
+        </li>`;
+    }
+
+    recommendedPlan.innerHTML = planHTML ||
+      '<li><span class="check">&#10003;</span> See Conversation Summary above for details.</li>';
+  }
+
+  const followUp = document.getElementById('followUp');
+  if (followUp) {
+    followUp.innerHTML = unasked.length > 0
+      ? 'Review the unasked questions above and schedule a follow-up appointment to close diagnostic gaps.'
+      : 'Schedule a follow-up appointment to review findings and next steps.';
+  }
 }
 
 document.addEventListener('click', (e) => {
@@ -1241,82 +1485,81 @@ document.getElementById('chatMode')?.addEventListener('change', (e) => {
 // ============================================
 // Patient Management Functions
 // ============================================
-async function syncSessionPatient(patientId) {
+let currentSessionPatientId = null;
+let currentPatientIdentifier = '';
+
+async function syncSessionPatient({ patientId = null, patientIdentifier = null } = {}) {
   try {
-    const body = patientId
-      ? { patient_id: parseInt(patientId, 10) }
-      : {};
-    await fetch('/api/session-patient', {
+    const body = {};
+    if (patientId != null) body.patient_id = parseInt(patientId, 10);
+    if (patientIdentifier != null) body.patient_identifier = patientIdentifier;
+
+    const res = await fetch('/api/session-patient', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': (window.CSRF_TOKEN || '') },
       credentials: 'same-origin',
       body: JSON.stringify(body)
     });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data?.error || 'Failed to set patient number');
+    }
+    currentSessionPatientId = data.patient_id || null;
+    currentPatientIdentifier = data.patient_identifier || '';
+    const input = document.getElementById('patientIdentifierInput');
+    if (input && currentPatientIdentifier) input.value = currentPatientIdentifier;
+    return data;
   } catch (e) {
     console.warn('Could not sync session patient:', e);
+    throw e;
   }
 }
 
-async function loadPatients() {
-  const sel = document.getElementById('patientSelect');
-  if (!sel) return;
-  const currentVal = sel.value;
-  sel.innerHTML = '<option value="">-- No Patient --</option>';
-  try {
-    const r = await fetch('/api/patients', { credentials: 'same-origin' });
-    const data = await r.json();
-    if (data.ok && data.patients && data.patients.length > 0) {
-      data.patients.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.label || ('Patient ' + p.id);
-        sel.appendChild(opt);
-      });
-      if (currentVal) sel.value = currentVal;
-    }
-  } catch (e) {
-    console.warn('Could not load patients:', e);
-  }
-}
-
-function wireNewPatientButton() {
-  const btn = document.getElementById('newPatientBtn');
-  const sel = document.getElementById('patientSelect');
-  if (!btn || !sel) return;
+function wireSetPatientButton() {
+  const btn = document.getElementById('setPatientBtn');
+  const input = document.getElementById('patientIdentifierInput');
+  if (!btn || !input) return;
   btn.addEventListener('click', async () => {
+    const raw = (input.value || '').trim();
     try {
-      const r = await fetch('/api/patients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': (window.CSRF_TOKEN || '') },
-        credentials: 'same-origin',
-        body: JSON.stringify({})
-      });
-      const ct = r.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) {
-        alert('Session may have expired. Please refresh the page and log in again.');
+      if (!raw) {
+        await syncSessionPatient({});
+        currentSessionPatientId = null;
+        currentPatientIdentifier = '';
         return;
       }
-      const data = await r.json();
-      if (data.ok && data.patient_id) {
-        await loadPatients();
-        sel.value = String(data.patient_id);
-        await syncSessionPatient(sel.value);
-      } else {
-        alert(data.error || 'Failed to create patient');
-      }
+      await syncSessionPatient({ patientIdentifier: raw });
     } catch (e) {
-      alert('Network error: ' + (e.message || 'Please try again.'));
+      alert(e?.message || 'Could not set patient number');
     }
+  });
+
+  input.addEventListener('keypress', async (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    btn.click();
   });
 }
 
-// Wire patient selector change event
-document.getElementById('patientSelect')?.addEventListener('change', async (e) => {
-  await syncSessionPatient(e.target.value || null);
-});
+// Hydrate patient input from session on page load (e.g. after refresh or navigate back).
+async function loadSessionPatient() {
+  const input = document.getElementById('patientIdentifierInput');
+  if (!input) return;
+  try {
+    const res = await fetch('/api/session-patient', { credentials: 'same-origin' });
+    const data = await res.json();
+    if (data.ok && (data.patient_id != null || data.patient_identifier)) {
+      currentSessionPatientId = data.patient_id || null;
+      currentPatientIdentifier = data.patient_identifier || '';
+      if (currentPatientIdentifier) input.value = currentPatientIdentifier;
+    }
+  } catch (e) {
+    console.warn('Could not load session patient:', e);
+  }
+}
 
-// Initialize patient management on page load
+// Initialize manual patient identifier input on page load.
 window.addEventListener('DOMContentLoaded', () => {
-  loadPatients();
-  wireNewPatientButton();
+  wireSetPatientButton();
+  loadSessionPatient();
 });

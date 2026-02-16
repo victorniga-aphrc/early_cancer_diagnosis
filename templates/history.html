@@ -796,7 +796,7 @@
       }) : '—';
 
       const rawPatient = c.patient_label != null ? String(c.patient_label).trim() : '';
-      const patient = rawPatient || 'Unknown Patient';
+      const patient = rawPatient || '—';
       const preview = (c.preview || 'No messages yet').substring(0, 100) + ((c.preview || '').length > 100 ? '...' : '');
 
       div.innerHTML = `

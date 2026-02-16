@@ -4,6 +4,7 @@ from flask import Flask, render_template, request, jsonify, session, Response, s
 import os
 import json
 import logging
+import re
 from datetime import datetime
 from urllib.parse import unquote
 from threading import RLock
@@ -661,6 +662,20 @@ def _patient_display_labels_for_current_user():
     return out
 
 
+_PATIENT_IDENT_RE = re.compile(r"^P?(\d+)$", re.IGNORECASE)
+
+
+def _normalize_patient_identifier(raw: str | None) -> str | None:
+    """Normalize clinician input like '1'/'001'/'P001' -> 'P001'."""
+    txt = (raw or "").strip().upper()
+    if not txt:
+        return None
+    m = _PATIENT_IDENT_RE.match(txt)
+    if not m:
+        return None
+    return f"P{int(m.group(1)):03d}"
+
+
 @app.route("/api/my-conversations")
 @login_required
 def api_my_conversations():
@@ -737,14 +752,48 @@ def api_delete_conversation(conversation_id):
 
 
 # -----------------------------------------------------------------------------
-# Session patient (sync dropdown selection so new conversations get patient_id)
+# Session patient (manual identifier input; sync before conversation create/use)
 # -----------------------------------------------------------------------------
-@app.route("/api/session-patient", methods=["POST"])
+@app.route("/api/session-patient", methods=["GET", "POST"])
 @login_required
 def api_session_patient():
-    """Set session['patient_id'] so the next conversation is linked to this patient."""
+    """GET: Return current session patient (for UI hydration). POST: Set session patient."""
+    if request.method == "GET":
+        active_pid = session.get("patient_id")
+        active_ident = None
+        if active_pid is not None:
+            p = get_patient(int(active_pid))
+            if p is not None:
+                active_ident = (p.identifier or "").strip() or None
+        return jsonify({
+            "ok": True,
+            "patient_id": active_pid,
+            "patient_identifier": active_ident,
+        })
+
+    # POST: Set session['patient_id'] for current conversation and future turns
     data = request.get_json(force=True, silent=True) or {}
     pid = data.get("patient_id")
+    raw_ident = data.get("patient_identifier")
+    ident = _normalize_patient_identifier(raw_ident)
+    if pid is None and raw_ident is not None and str(raw_ident).strip() and ident is None:
+        return jsonify({
+            "ok": False,
+            "error": "Invalid patient number format. Use P001 or 001.",
+        }), 400
+
+    # Manual identifier mode: resolve patient for this clinician (create if missing)
+    if pid is None and ident:
+        existing = None
+        for p in list_patients_for_user(current_user.id):
+            if ((p.identifier or "").strip().upper() == ident):
+                existing = p
+                break
+        if existing is not None:
+            pid = existing.id
+        else:
+            pid = create_patient(identifier=ident, clinician_id=current_user.id, display_name=None)
+
     if pid is None:
         session.pop("patient_id", None)
         # If a conversation is already active, detach patient from it too
@@ -766,7 +815,18 @@ def api_session_patient():
                 update_conversation_patient(cid, current_user.id, int(session["patient_id"]))
         except Exception:
             logger.exception("Failed to update conversation patient_id")
-    return jsonify({"ok": True})
+
+    active_pid = session.get("patient_id")
+    active_ident = None
+    if active_pid is not None:
+        p = get_patient(int(active_pid))
+        if p is not None:
+            active_ident = (p.identifier or "").strip() or None
+    return jsonify({
+        "ok": True,
+        "patient_id": active_pid,
+        "patient_identifier": active_ident,
+    })
 
 
 # -----------------------------------------------------------------------------

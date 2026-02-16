@@ -150,6 +150,49 @@ Documentation of changes made during project setup and improvement.
 
 ---
 
+## Latest Application Updates
+
+### Patient identification workflow (main app)
+- Replaced dropdown-based patient selection with manual clinician entry of patient number.
+- Added input guidance in UI: accepted formats include `P001` and `001`.
+- Backend now normalizes patient identifiers to `P###` format, validates input, and returns a clear error for invalid formats.
+- If the entered identifier already exists for the logged-in clinician, it is reused; otherwise a new patient record is created and linked.
+- Conversation linking remains immediate: selected patient is written to the active conversation `patient_id` in DB (not session-only).
+
+### Reset conversation behavior
+- Improved reset handling so patient context is preserved when a valid patient number is already set.
+- If a clinician typed a patient number but did not click Set yet, reset now resolves it first, then starts the fresh conversation with the correct `patient_id`.
+
+### Live mode UX improvements
+- Added a live status line in the Live pane (listening/connection feedback).
+- Enhanced **Unasked (End-only)** flow:
+  - During live capture, recommendations are stored for end-of-session ranking.
+  - On Stop, the app fetches a consolidated bundle (listener summary + ranked unasked questions).
+  - Summary panel and unasked modal are populated automatically from that bundle.
+
+### Search experience and robustness
+- Upgraded search rendering from plain text blocks to structured result cards for readability.
+- Preserved robust type handling for mixed string/object result fields, preventing highlight/render crashes.
+- Preserved explicit no-results messaging and backend error propagation to avoid silent failures.
+
+### Validation and quality checks
+- Verified owner/admin access boundaries in code paths:
+  - Clinicians only access their own history/conversations.
+  - Admin APIs remain role-guarded.
+- Syntax checks passed for backend modules after integration updates.
+- Lint diagnostics reported no new issues in edited files.
+
+### Patient number blank in Admin / History
+- **Issue**: After creating a conversation with a patient number specified, Admin Conversations and History showed the patient column blank or "unknown".
+- **Cause**: If the user entered a patient number but sent a message without clicking "Set", the session never received `patient_id`, so the conversation was created with `patient_id` NULL.
+- **Fix**:
+  - Auto-sync patient from the manual input field before any request that creates or uses a conversation (send message, live transcription).
+  - Added `GET /api/session-patient` to return current session patient for UI hydration on page load.
+  - Patient input and session state are now restored when the user refreshes or navigates back to the main app.
+  - History fallback for missing patient label changed from "Unknown Patient" to "—" for consistency with Admin.
+
+---
+
 ## File Structure
 
 - **run.sh** – One-command run script (keep when receiving updates from team)
