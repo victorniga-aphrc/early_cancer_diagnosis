@@ -1192,9 +1192,11 @@ function renderPerConversationSymptoms(conversations) {
   tbody.innerHTML = '';
 
   if (conversations.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No symptom data available</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No symptom data available</td></tr>';
     return;
   }
+
+  const convIdsToFetch = [];
 
   conversations.forEach(conv => {
     const convId = String(conv.conversation_id || '').trim();
@@ -1214,29 +1216,62 @@ function renderPerConversationSymptoms(conversations) {
     const tdSymptoms = document.createElement('td');
     tdSymptoms.textContent = symptomsText;
 
+    // Likelihood column
+    const tdLikelihood = document.createElement('td');
+    tdLikelihood.style.textAlign = 'center';
+    tdLikelihood.id = `likelihood-${convId}`;
+    tdLikelihood.innerHTML = '<span style="color: var(--admin-text-light);">—</span>';
+
+    // Check cache first
+    if (_diseaseLikelihoodCache.has(convId)) {
+      const cached = _diseaseLikelihoodCache.get(convId);
+      const pct = cached?.data?.cancer_likelihood_pct;
+      if (typeof pct === 'number') {
+        tdLikelihood.innerHTML = formatLikelihoodBadge(pct);
+      }
+    } else {
+      convIdsToFetch.push(convId);
+    }
+
     const tdActions = document.createElement('td');
     tdActions.style.textAlign = 'right';
 
-    const btnView = document.createElement('button');
-    btnView.className = 'btn-admin-secondary btn-admin-sm';
-    btnView.textContent = 'View';
-    btnView.addEventListener('click', () => viewConversation(convId));
-
     const btnAnalyze = document.createElement('button');
     btnAnalyze.className = 'btn-admin-secondary btn-admin-sm';
-    btnAnalyze.style.marginLeft = '0.5rem';
     btnAnalyze.textContent = 'Analyze';
     btnAnalyze.addEventListener('click', () => viewDiseaseLikelihoods(convId));
 
-    tdActions.appendChild(btnView);
     tdActions.appendChild(btnAnalyze);
 
     tr.appendChild(tdPatient);
     tr.appendChild(tdClinician);
     tr.appendChild(tdSymptoms);
+    tr.appendChild(tdLikelihood);
     tr.appendChild(tdActions);
     tbody.appendChild(tr);
   });
+
+  // Lazy-load likelihoods for conversations not in cache (limit to first 10)
+  const toFetch = convIdsToFetch.slice(0, 10);
+  toFetch.forEach(convId => {
+    _getDiseaseLikelihoods(convId).then(entry => {
+      const cell = document.getElementById(`likelihood-${convId}`);
+      if (cell && entry?.data) {
+        const pct = entry.data.cancer_likelihood_pct;
+        if (typeof pct === 'number') {
+          cell.innerHTML = formatLikelihoodBadge(pct);
+        }
+      }
+    }).catch(() => {
+      // Silently fail - keep the "—"
+    });
+  });
+}
+
+function formatLikelihoodBadge(pct) {
+  const color = pct >= 50 ? '#dc2626' : pct >= 20 ? '#f97316' : '#22c55e';
+  const bgColor = pct >= 50 ? '#fef2f2' : pct >= 20 ? '#fff7ed' : '#f0fdf4';
+  return `<span style="display: inline-block; padding: 0.25rem 0.625rem; border-radius: 12px; font-size: 0.8rem; font-weight: 600; background: ${bgColor}; color: ${color};">${pct}%</span>`;
 }
 
 async function _getDiseaseLikelihoods(convId, { force = false } = {}) {
