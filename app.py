@@ -907,14 +907,18 @@ def favicon():
 @app.route("/history")
 @login_required
 def history_page():
-    """History list: my conversations (Date | Patient | Preview)."""
+    """History list: my conversations (Date | Patient | Preview). Admin only."""
+    if not any(r.name == "admin" for r in current_user.roles):
+        return "Forbidden", 403
     return render_template("history.html")
 
 
 @app.route("/history/<conversation_id>")
 @login_required
 def history_detail_page(conversation_id):
-    """Single conversation detail (messages). Access only if owned by current user."""
+    """Single conversation detail (messages). Admin only."""
+    if not any(r.name == "admin" for r in current_user.roles):
+        return "Forbidden", 403
     c = get_conversation_if_owned_by(conversation_id, current_user.id)
     if c is None:
         return "Not found or access denied", 404

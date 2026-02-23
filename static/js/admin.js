@@ -20,6 +20,49 @@ function fmtDateTime(iso) {
   try { return new Date(iso).toLocaleString(); } catch { return iso || ''; }
 }
 
+// Format structured text for Listener, Final Plan, etc.
+function formatStructuredText(text, role) {
+  if (!text) return '—';
+
+  let html = escapeHtml(text);
+
+  // For Listener or structured roles, apply enhanced formatting
+  if (role === 'Listener' || role === 'Question Recommender' || text.includes('Final Plan') || text.includes('**')) {
+    // Format bold text: **text** or __text__
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="color: var(--admin-primary);">$1</strong>');
+    html = html.replace(/__([^_]+)__/g, '<strong style="color: var(--admin-primary);">$1</strong>');
+
+    // Format section headers (lines ending with colon or starting with #)
+    html = html.replace(/^(#+\s*)(.+)$/gm, '<div style="font-weight: 600; color: var(--admin-primary); margin: 0.75rem 0 0.375rem 0; font-size: 0.95rem;">$2</div>');
+    html = html.replace(/^([A-Z][A-Za-z\s]+):(\s*)$/gm, '<div style="font-weight: 600; color: var(--admin-primary); margin: 0.75rem 0 0.25rem 0; border-bottom: 1px solid var(--admin-border); padding-bottom: 0.25rem;">$1</div>');
+
+    // Format bullet points (-, *, •)
+    html = html.replace(/^[\s]*[-*•]\s+(.+)$/gm, '<div style="display: flex; gap: 0.5rem; margin: 0.25rem 0 0.25rem 0.5rem;"><span style="color: var(--admin-primary);">•</span><span>$1</span></div>');
+
+    // Format numbered lists
+    html = html.replace(/^[\s]*(\d+)\.\s+(.+)$/gm, '<div style="display: flex; gap: 0.5rem; margin: 0.25rem 0 0.25rem 0.5rem;"><span style="color: var(--admin-primary); font-weight: 500; min-width: 1.25rem;">$1.</span><span>$2</span></div>');
+
+    // Format key-value pairs (Key: Value)
+    html = html.replace(/^([A-Za-z\s]+):\s+(.+)$/gm, (match, key, value) => {
+      if (key.length < 25 && !key.includes('\n')) {
+        return `<div style="margin: 0.25rem 0;"><span style="font-weight: 500; color: #4b5563;">${key}:</span> ${value}</div>`;
+      }
+      return match;
+    });
+
+    // Convert remaining newlines to line breaks
+    html = html.replace(/\n/g, '<br>');
+
+    // Clean up excessive line breaks
+    html = html.replace(/(<br\s*\/?>\s*){3,}/g, '<br><br>');
+  } else {
+    // Simple formatting: just preserve line breaks
+    html = html.replace(/\n/g, '<br>');
+  }
+
+  return html;
+}
+
 function showAlert(message, type = 'error') {
   const alert = document.getElementById('admin-alert');
   const alertText = document.getElementById('admin-alert-text');
@@ -71,6 +114,10 @@ function initTabs() {
       if (tabName === 'analytics' && !window.__analyticsLoaded) {
         window.__analyticsLoaded = true;
         loadAnalyticsData();
+      }
+      if (tabName === 'history' && !window.__historyLoaded) {
+        window.__historyLoaded = true;
+        loadHistoryData();
       }
     });
   });
@@ -227,7 +274,8 @@ const conversationState = {
   done: false,
   clinicianId: null,
   patientId: null,
-  allConversations: [] // Store for search filtering
+  allConversations: [],
+  selectedConvId: null
 };
 
 function getConversationsUrl() {
@@ -248,73 +296,303 @@ async function loadConversations(append = false) {
   if (conversationState.loading) return;
   if (append && conversationState.done) return;
 
+  const loadingEl = document.getElementById('convos-loading');
+  const emptyEl = document.getElementById('convos-empty');
+  const listEl = document.getElementById('convos-list');
+  const loadMoreWrapper = document.getElementById('convos-load-more-wrapper');
+
   if (!append) {
     conversationState.page = 1;
     conversationState.done = false;
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (listEl) listEl.style.display = 'none';
+    if (loadMoreWrapper) loadMoreWrapper.style.display = 'none';
   }
 
   conversationState.loading = true;
-  showLoading();
 
   try {
     const data = await getJSON(getConversationsUrl());
     if (!data.ok) throw new Error(data.error || 'Failed to load conversations');
 
+    if (loadingEl) loadingEl.style.display = 'none';
+
     if (!append) {
       conversationState.allConversations = data.conversations || [];
-      renderConversationsTable(conversationState.allConversations);
     } else {
       conversationState.allConversations.push(...(data.conversations || []));
-      renderConversationsTable(conversationState.allConversations, true);
     }
 
-    conversationState.page += 1;
-
-    const loaded = (conversationState.page - 1) * conversationState.size;
-    if (loaded >= (data.total || 0)) {
-      conversationState.done = true;
-      const btn = document.getElementById('load-more-convos');
-      if (btn) btn.disabled = true;
+    if (conversationState.allConversations.length === 0) {
+      if (emptyEl) emptyEl.style.display = 'block';
+      if (listEl) listEl.style.display = 'none';
+      if (loadMoreWrapper) loadMoreWrapper.style.display = 'none';
     } else {
-      const btn = document.getElementById('load-more-convos');
-      if (btn) btn.disabled = false;
+      if (listEl) listEl.style.display = 'block';
+      renderConversationsList();
+
+      conversationState.page += 1;
+      const loaded = (conversationState.page - 1) * conversationState.size;
+      if (loaded >= (data.total || 0)) {
+        conversationState.done = true;
+        if (loadMoreWrapper) loadMoreWrapper.style.display = 'none';
+      } else {
+        if (loadMoreWrapper) loadMoreWrapper.style.display = 'block';
+        const btn = document.getElementById('load-more-convos');
+        if (btn) btn.disabled = false;
+      }
     }
   } catch (err) {
+    if (loadingEl) loadingEl.style.display = 'none';
     showAlert(err.message);
   } finally {
     conversationState.loading = false;
-    hideLoading();
   }
 }
 
-function renderConversationsTable(conversations, append = false) {
-  const tbody = document.querySelector('#tbl-convos tbody');
-  if (!tbody) return;
+function renderConversationsList(filteredList = null) {
+  const listEl = document.getElementById('convos-list');
+  if (!listEl) return;
 
-  if (!append) tbody.innerHTML = '';
+  listEl.innerHTML = '';
 
-  if (conversations.length === 0 && !append) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No conversations found</td></tr>';
+  const conversations = filteredList || conversationState.allConversations;
+
+  if (conversations.length === 0) {
+    listEl.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--admin-text-light);">No matching conversations</div>';
     return;
   }
 
   conversations.forEach(conv => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td style="font-family: monospace; font-size: 0.85rem;">${escapeHtml(String(conv.id).substring(0, 8))}...</td>
-      <td>${escapeHtml(conv.owner_display_name || '—')}</td>
-      <td>${escapeHtml(conv.patient_label || '—')}</td>
-      <td style="font-size: 0.85rem;">${fmtDateTime(conv.created_at)}</td>
-      <td style="text-align: center;">${conv.message_count || 0}</td>
-      <td style="text-align: right;">
-        <button class="btn-admin-secondary btn-admin-sm" onclick="viewConversation('${escapeHtml(conv.id)}')">View</button>
-        <button class="btn-admin-danger btn-admin-sm" onclick="deleteConversation('${escapeHtml(conv.id)}')">Delete</button>
-      </td>
+    const isActive = conv.id === conversationState.selectedConvId;
+    const date = conv.created_at ? new Date(conv.created_at).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    }) : '—';
+
+    const clinician = conv.owner_display_name || '—';
+    const patient = conv.patient_label || '—';
+
+    const item = document.createElement('div');
+    item.className = 'convos-item';
+    item.style.cssText = `
+      padding: 0.875rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 0.5rem;
+      border: 1px solid ${isActive ? 'var(--admin-primary)' : 'transparent'};
+      background: ${isActive ? 'rgba(123, 193, 72, 0.1)' : 'white'};
     `;
-    tbody.appendChild(tr);
+    item.dataset.id = conv.id;
+
+    item.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.375rem;">
+        <span style="font-weight: 600; font-size: 0.9rem; color: var(--admin-text);">
+          👤 ${escapeHtml(patient)}
+        </span>
+        <button class="convos-delete-btn" data-id="${conv.id}" style="
+          background: none; border: none; color: var(--admin-text-light); padding: 4px; cursor: pointer;
+          border-radius: 4px; opacity: 0.5; transition: all 0.2s;
+        " title="Delete conversation">🗑️</button>
+      </div>
+      <div style="font-size: 0.8rem; color: var(--admin-text-light); margin-bottom: 0.375rem;">
+        🩺 ${escapeHtml(clinician)}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; color: var(--admin-text-light);">
+        <span>📅 ${date}</span>
+        <span>💬 ${conv.message_count || 0} messages</span>
+      </div>
+    `;
+
+    // Hover effect
+    item.addEventListener('mouseenter', () => {
+      if (!isActive) item.style.background = '#f9fafb';
+      item.querySelector('.convos-delete-btn').style.opacity = '1';
+    });
+    item.addEventListener('mouseleave', () => {
+      if (!isActive) item.style.background = 'white';
+      item.querySelector('.convos-delete-btn').style.opacity = '0.5';
+    });
+
+    // Click to select
+    item.addEventListener('click', (e) => {
+      if (!e.target.closest('.convos-delete-btn')) {
+        selectConversation(conv.id);
+      }
+    });
+
+    // Delete button
+    const deleteBtn = item.querySelector('.convos-delete-btn');
+    deleteBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteConversation(conv.id);
+    });
+
+    listEl.appendChild(item);
   });
 }
 
+async function selectConversation(convId) {
+  conversationState.selectedConvId = convId;
+  renderConversationsList(); // Update active state
+
+  const placeholderEl = document.getElementById('convos-detail-placeholder');
+  const loadingEl = document.getElementById('convos-detail-loading');
+  const contentEl = document.getElementById('convos-detail-content');
+
+  if (placeholderEl) placeholderEl.style.display = 'none';
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (contentEl) contentEl.style.display = 'none';
+
+  try {
+    const data = await getJSON(`/admin/api/conversation/${encodeURIComponent(convId)}`);
+    if (!data.ok) throw new Error(data.error || 'Failed to load conversation');
+
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'block';
+
+    renderConversationDetail(convId, data);
+  } catch (err) {
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (placeholderEl) {
+      placeholderEl.innerHTML = `
+        <div style="font-size: 3rem; opacity: 0.5; margin-bottom: 1rem;">⚠️</div>
+        <h4 style="margin: 0 0 0.5rem 0; color: var(--admin-text);">Error loading conversation</h4>
+        <p>${escapeHtml(err.message)}</p>
+      `;
+      placeholderEl.style.display = 'block';
+    }
+  }
+}
+
+function renderConversationDetail(convId, data) {
+  const contentEl = document.getElementById('convos-detail-content');
+  if (!contentEl) return;
+
+  const conv = conversationState.allConversations.find(c => c.id === convId);
+  const messages = data.messages || [];
+  const recs = data.recommended_questions || [];
+  const date = conv && conv.created_at ? new Date(conv.created_at).toLocaleString() : '—';
+  const clinician = conv ? (conv.owner_display_name || '—') : '—';
+  const patient = conv ? (conv.patient_label || '—') : '—';
+
+  // Build messages HTML
+  let messagesHtml = '';
+  if (messages.length === 0) {
+    messagesHtml = `
+      <div style="text-align: center; padding: 2rem; color: var(--admin-text-light);">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem;">💬</div>
+        <p>No messages in this conversation.</p>
+      </div>
+    `;
+  } else {
+    messagesHtml = messages.map(m => {
+      const roleColors = {
+        'patient': { bg: '#dbeafe', color: '#1e40af', icon: '👤' },
+        'clinician': { bg: '#dcfce7', color: '#166534', icon: '🩺' },
+        'Question Recommender': { bg: '#fef3c7', color: '#92400e', icon: '💡' },
+        'Listener': { bg: 'rgba(123, 193, 72, 0.15)', color: '#166534', icon: '📋' }
+      };
+      const style = roleColors[m.role] || { bg: '#f3f4f6', color: '#4b5563', icon: '🤖' };
+      const messageText = m.text || m.message || '—';
+      const formattedText = formatStructuredText(messageText, m.role);
+
+      return `
+        <div style="padding: 1rem; border-bottom: 1px solid #f3f4f6;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.625rem;
+              border-radius: 20px; font-size: 0.75rem; font-weight: 500; background: ${style.bg}; color: ${style.color};">
+              ${style.icon} ${escapeHtml(m.role || 'message')}
+            </span>
+            <span style="font-size: 0.75rem; color: var(--admin-text-light);">${escapeHtml(m.timestamp || '')}</span>
+          </div>
+          <div style="color: var(--admin-text); line-height: 1.6; font-size: 0.9rem;">
+            ${formattedText}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Recommended questions HTML for right column
+  const recsHtml = recs.length > 0 ? `
+    <div style="background: white; border-radius: 8px; overflow: hidden; height: fit-content;">
+      <div style="background: #f97316; color: white; padding: 0.75rem 1rem; font-weight: 500; font-size: 0.85rem;">
+        💡 Recommended Questions (${recs.length})
+      </div>
+      <div style="padding: 0.75rem; max-height: 400px; overflow-y: auto;">
+        ${recs.map(r => `
+          <div style="padding: 0.625rem; margin-bottom: 0.5rem; background: #fffbeb; border-radius: 6px; font-size: 0.825rem; line-height: 1.4;">
+            ${escapeHtml(r.question)}
+            ${r.symptom ? `<div style="margin-top: 0.375rem;"><span style="background: #dcfce7; color: #166534; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.7rem;">${escapeHtml(r.symptom)}</span></div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  ` : `
+    <div style="background: white; border-radius: 8px; overflow: hidden; height: fit-content;">
+      <div style="background: #f97316; color: white; padding: 0.75rem 1rem; font-weight: 500; font-size: 0.85rem;">
+        💡 Recommended Questions
+      </div>
+      <div style="padding: 1.5rem; text-align: center; color: var(--admin-text-light); font-size: 0.85rem;">
+        No recommended questions
+      </div>
+    </div>
+  `;
+
+  contentEl.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+      <h4 style="margin: 0; color: var(--admin-primary); display: flex; align-items: center; gap: 0.5rem;">
+        💬 Conversation Details
+      </h4>
+      <button id="convos-delete-current" class="btn-admin-danger btn-admin-sm">🗑️ Delete</button>
+    </div>
+
+    <div style="background: white; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 1.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--admin-text-light); font-size: 0.875rem;">
+        📅 <strong>Started:</strong> ${escapeHtml(date)}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--admin-text-light); font-size: 0.875rem;">
+        🩺 <strong>Clinician:</strong> ${escapeHtml(clinician)}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--admin-text-light); font-size: 0.875rem;">
+        👤 <strong>Patient:</strong> ${escapeHtml(patient)}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--admin-text-light); font-size: 0.875rem;">
+        💬 <strong>Messages:</strong> ${messages.length}
+      </div>
+    </div>
+
+    <div class="convos-detail-columns">
+      <!-- Messages Column -->
+      <div class="convos-messages-col">
+        <div style="background: white; border-radius: 8px; overflow: hidden;">
+          <div style="background: var(--admin-primary); color: white; padding: 0.875rem 1.25rem; font-weight: 500; font-size: 0.9rem;">
+            💬 Messages
+          </div>
+          <div style="max-height: 400px; overflow-y: auto;">
+            ${messagesHtml}
+          </div>
+        </div>
+      </div>
+
+      <!-- Recommended Questions Column -->
+      <div class="convos-recs-col">
+        ${recsHtml}
+      </div>
+    </div>
+  `;
+
+  // Wire delete button
+  const deleteBtn = document.getElementById('convos-delete-current');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => deleteConversation(convId));
+  }
+}
+
+// Legacy viewConversation for modal (used by analytics tab)
 async function viewConversation(convId) {
   showLoading();
   try {
@@ -371,33 +649,52 @@ async function viewConversation(convId) {
 }
 
 async function deleteConversation(convId) {
-  if (!confirm(`Are you sure you want to delete conversation ${convId}?\n\nThis action cannot be undone.`)) {
-    return;
-  }
+  if (!confirm('Delete this conversation? This cannot be undone.')) return;
 
   showLoading();
   try {
     const response = await fetch(`/admin/api/conversation/${encodeURIComponent(convId)}`, {
       method: 'DELETE',
       credentials: 'same-origin',
-      headers: {
-        'X-CSRFToken': window.CSRF_TOKEN || ''
-      }
+      headers: { 'X-CSRFToken': window.CSRF_TOKEN || '' }
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Delete failed: ${text}`);
+    const data = await response.json().catch(() => ({}));
+    if (data.ok) {
+      // Remove from state
+      conversationState.allConversations = conversationState.allConversations.filter(c => c.id !== convId);
+
+      // If this was selected, clear detail
+      if (conversationState.selectedConvId === convId) {
+        conversationState.selectedConvId = null;
+        const contentEl = document.getElementById('convos-detail-content');
+        const placeholderEl = document.getElementById('convos-detail-placeholder');
+        if (contentEl) contentEl.style.display = 'none';
+        if (placeholderEl) {
+          placeholderEl.innerHTML = `
+            <div style="font-size: 3rem; opacity: 0.5; margin-bottom: 1rem;">💬</div>
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--admin-text);">No conversation selected</h4>
+            <p>Select a conversation from the list to view its messages</p>
+          `;
+          placeholderEl.style.display = 'block';
+        }
+      }
+
+      // Re-render list or show empty
+      if (conversationState.allConversations.length === 0) {
+        document.getElementById('convos-list').style.display = 'none';
+        document.getElementById('convos-empty').style.display = 'block';
+        document.getElementById('convos-load-more-wrapper').style.display = 'none';
+      } else {
+        renderConversationsList();
+      }
+
+      showAlert('Conversation deleted successfully', 'success');
+    } else {
+      showAlert(data.error || 'Could not delete conversation');
     }
-
-    const data = await response.json();
-    if (!data.ok) throw new Error(data.error || 'Delete failed');
-
-    // Reload conversations list
-    await loadConversations(false);
-    showAlert('Conversation deleted successfully', 'success');
   } catch (err) {
-    showAlert(err.message);
+    showAlert('Network error: ' + err.message);
   } finally {
     hideLoading();
   }
@@ -1044,6 +1341,292 @@ async function viewDiseaseLikelihoods(convId, { force = false } = {}) {
 
 window.viewDiseaseLikelihoods = viewDiseaseLikelihoods;
 
+// ===== History Tab (My Conversations) =====
+const historyState = {
+  conversations: [],
+  selectedConvId: null
+};
+
+async function loadHistoryData() {
+  const loadingEl = document.getElementById('history-loading');
+  const emptyEl = document.getElementById('history-empty');
+  const listEl = document.getElementById('history-list');
+
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (listEl) listEl.style.display = 'none';
+
+  try {
+    const data = await getJSON('/api/my-conversations');
+    if (!data.ok) throw new Error(data.error || 'Failed to load conversations');
+
+    historyState.conversations = data.conversations || [];
+
+    if (loadingEl) loadingEl.style.display = 'none';
+
+    if (historyState.conversations.length === 0) {
+      if (emptyEl) emptyEl.style.display = 'block';
+      return;
+    }
+
+    if (listEl) listEl.style.display = 'block';
+    renderHistoryList();
+  } catch (err) {
+    if (loadingEl) loadingEl.style.display = 'none';
+    showAlert(err.message);
+  }
+}
+
+function renderHistoryList() {
+  const listEl = document.getElementById('history-list');
+  if (!listEl) return;
+
+  listEl.innerHTML = '';
+
+  historyState.conversations.forEach(conv => {
+    const isActive = conv.id === historyState.selectedConvId;
+    const date = conv.created_at ? new Date(conv.created_at).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    }) : '—';
+
+    const patient = conv.patient_label || '—';
+    const preview = (conv.preview || 'No messages yet').substring(0, 80) + ((conv.preview || '').length > 80 ? '...' : '');
+
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.style.cssText = `
+      padding: 0.875rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 0.5rem;
+      border: 1px solid ${isActive ? 'var(--admin-primary)' : 'transparent'};
+      background: ${isActive ? 'rgba(123, 193, 72, 0.1)' : 'white'};
+    `;
+    item.dataset.id = conv.id;
+
+    item.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.375rem;">
+        <span style="font-weight: 600; font-size: 0.9rem; color: var(--admin-text);">
+          👤 ${escapeHtml(patient)}
+        </span>
+        <button class="history-delete-btn" data-id="${conv.id}" style="
+          background: none; border: none; color: var(--admin-text-light); padding: 4px; cursor: pointer;
+          border-radius: 4px; opacity: 0.5; transition: all 0.2s;
+        " title="Delete conversation">🗑️</button>
+      </div>
+      <div style="font-size: 0.8rem; color: var(--admin-text-light); line-height: 1.4; margin-bottom: 0.5rem;">
+        ${escapeHtml(preview)}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; color: var(--admin-text-light);">
+        <span>📅 ${date}</span>
+        <span>💬 ${conv.message_count || 0} messages</span>
+      </div>
+    `;
+
+    // Hover effect
+    item.addEventListener('mouseenter', () => {
+      if (!isActive) item.style.background = '#f9fafb';
+      item.querySelector('.history-delete-btn').style.opacity = '1';
+    });
+    item.addEventListener('mouseleave', () => {
+      if (!isActive) item.style.background = 'white';
+      item.querySelector('.history-delete-btn').style.opacity = '0.5';
+    });
+
+    // Click to select
+    item.addEventListener('click', (e) => {
+      if (!e.target.closest('.history-delete-btn')) {
+        selectHistoryConversation(conv.id);
+      }
+    });
+
+    // Delete button
+    const deleteBtn = item.querySelector('.history-delete-btn');
+    deleteBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteHistoryConversation(conv.id);
+    });
+
+    listEl.appendChild(item);
+  });
+}
+
+async function selectHistoryConversation(convId) {
+  historyState.selectedConvId = convId;
+  renderHistoryList(); // Update active state
+
+  const placeholderEl = document.getElementById('history-detail-placeholder');
+  const loadingEl = document.getElementById('history-detail-loading');
+  const contentEl = document.getElementById('history-detail-content');
+
+  if (placeholderEl) placeholderEl.style.display = 'none';
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (contentEl) contentEl.style.display = 'none';
+
+  try {
+    const data = await getJSON(`/api/conversations/${encodeURIComponent(convId)}/messages`);
+    if (!data.ok) throw new Error(data.error || 'Failed to load conversation');
+
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'block';
+
+    renderHistoryDetail(convId, data);
+  } catch (err) {
+    if (loadingEl) loadingEl.style.display = 'none';
+    if (placeholderEl) {
+      placeholderEl.innerHTML = `
+        <div style="font-size: 3rem; opacity: 0.5; margin-bottom: 1rem;">⚠️</div>
+        <h4 style="margin: 0 0 0.5rem 0; color: var(--admin-text);">Error loading conversation</h4>
+        <p>${escapeHtml(err.message)}</p>
+      `;
+      placeholderEl.style.display = 'block';
+    }
+  }
+}
+
+function renderHistoryDetail(convId, data) {
+  const contentEl = document.getElementById('history-detail-content');
+  if (!contentEl) return;
+
+  const conv = historyState.conversations.find(c => c.id === convId);
+  const messages = data.messages || [];
+  const date = conv && conv.created_at ? new Date(conv.created_at).toLocaleString() : '—';
+  const patient = data.patient_label || (conv && conv.patient_label) || '—';
+  const patientId = data.patient_id || (conv && conv.patient_id) || '';
+
+  const newConvUrl = patientId ? `/?patient_id=${encodeURIComponent(patientId)}` : '/';
+
+  // Build messages HTML
+  let messagesHtml = '';
+  if (messages.length === 0) {
+    messagesHtml = `
+      <div style="text-align: center; padding: 2rem; color: var(--admin-text-light);">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem;">💬</div>
+        <p>No messages in this conversation.</p>
+      </div>
+    `;
+  } else {
+    messagesHtml = messages.map(m => {
+      const roleColors = {
+        'patient': { bg: '#dbeafe', color: '#1e40af', icon: '👤' },
+        'clinician': { bg: '#dcfce7', color: '#166534', icon: '🩺' },
+        'Question Recommender': { bg: '#fef3c7', color: '#92400e', icon: '💡' },
+        'Listener': { bg: 'rgba(123, 193, 72, 0.15)', color: '#166534', icon: '📋' }
+      };
+      const style = roleColors[m.role] || { bg: '#f3f4f6', color: '#4b5563', icon: '🤖' };
+      const messageText = m.message || '—';
+      const formattedText = formatStructuredText(messageText, m.role);
+
+      return `
+        <div style="padding: 1rem; border-bottom: 1px solid #f3f4f6;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.625rem;
+              border-radius: 20px; font-size: 0.75rem; font-weight: 500; background: ${style.bg}; color: ${style.color};">
+              ${style.icon} ${escapeHtml(m.role || 'message')}
+            </span>
+            <span style="font-size: 0.75rem; color: var(--admin-text-light);">${escapeHtml(m.timestamp || '')}</span>
+          </div>
+          <div style="color: var(--admin-text); line-height: 1.6; font-size: 0.9rem;">
+            ${formattedText}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  contentEl.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+      <h4 style="margin: 0; color: var(--admin-primary); display: flex; align-items: center; gap: 0.5rem;">
+        💬 Conversation Details
+      </h4>
+      <div style="display: flex; gap: 0.5rem;">
+        <button id="history-delete-current" class="btn-admin-danger btn-admin-sm">🗑️ Delete</button>
+        <a href="${newConvUrl}" class="btn-admin-primary btn-admin-sm" style="text-decoration: none;">+ New Conversation</a>
+      </div>
+    </div>
+
+    <div style="background: white; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 1.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--admin-text-light); font-size: 0.875rem;">
+        📅 <strong>Started:</strong> ${escapeHtml(date)}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--admin-text-light); font-size: 0.875rem;">
+        👤 <strong>Patient:</strong> ${escapeHtml(patient)}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--admin-text-light); font-size: 0.875rem;">
+        💬 <strong>Messages:</strong> ${messages.length}
+      </div>
+    </div>
+
+    <div style="background: white; border-radius: 8px; overflow: hidden;">
+      <div style="background: var(--admin-primary); color: white; padding: 0.875rem 1.25rem; font-weight: 500; font-size: 0.9rem;">
+        💬 Messages
+      </div>
+      <div style="max-height: 400px; overflow-y: auto;">
+        ${messagesHtml}
+      </div>
+    </div>
+  `;
+
+  // Wire delete button
+  const deleteBtn = document.getElementById('history-delete-current');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => deleteHistoryConversation(convId));
+  }
+}
+
+async function deleteHistoryConversation(convId) {
+  if (!confirm('Delete this conversation? This cannot be undone.')) return;
+
+  showLoading();
+  try {
+    const response = await fetch(`/api/conversations/${encodeURIComponent(convId)}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { 'X-CSRFToken': window.CSRF_TOKEN || '' }
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (data.ok) {
+      // Remove from state
+      historyState.conversations = historyState.conversations.filter(c => c.id !== convId);
+
+      // If this was selected, clear detail
+      if (historyState.selectedConvId === convId) {
+        historyState.selectedConvId = null;
+        const contentEl = document.getElementById('history-detail-content');
+        const placeholderEl = document.getElementById('history-detail-placeholder');
+        if (contentEl) contentEl.style.display = 'none';
+        if (placeholderEl) {
+          placeholderEl.innerHTML = `
+            <div style="font-size: 3rem; opacity: 0.5; margin-bottom: 1rem;">💬</div>
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--admin-text);">No conversation selected</h4>
+            <p>Select a conversation from the list to view its messages</p>
+          `;
+          placeholderEl.style.display = 'block';
+        }
+      }
+
+      // Re-render list or show empty
+      if (historyState.conversations.length === 0) {
+        document.getElementById('history-list').style.display = 'none';
+        document.getElementById('history-empty').style.display = 'block';
+      } else {
+        renderHistoryList();
+      }
+
+      showAlert('Conversation deleted successfully', 'success');
+    } else {
+      showAlert(data.error || 'Could not delete conversation');
+    }
+  } catch (err) {
+    showAlert('Network error: ' + err.message);
+  } finally {
+    hideLoading();
+  }
+}
+
 // ===== Search & Filters =====
 function initSearchAndFilters() {
   // Clinician filter
@@ -1068,7 +1651,12 @@ function initSearchAndFilters() {
   const searchInput = document.getElementById('search-conversation');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
-      const query = e.target.value.toLowerCase();
+      const query = e.target.value.toLowerCase().trim();
+      if (!query) {
+        // Show all conversations when search is cleared
+        renderConversationsList();
+        return;
+      }
       const filtered = conversationState.allConversations.filter(conv => {
         const id = String(conv.id).toLowerCase();
         const clinician = (conv.owner_display_name || '').toLowerCase();
@@ -1078,7 +1666,7 @@ function initSearchAndFilters() {
                clinician.includes(query) ||
                patient.includes(query);
       });
-      renderConversationsTable(filtered, false);
+      renderConversationsList(filtered);
     });
   }
 

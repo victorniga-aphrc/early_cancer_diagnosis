@@ -63,10 +63,6 @@
     <span>Early Cancer Diagnosis</span>
   </div>
   <div class="menu-right">
-    <a href="{{ url_for('history_page') }}" class="nav-link-custom">
-      <i data-lucide="history" style="width:14px;height:14px"></i>
-      History
-    </a>
     {% for role in current_user.roles %}
     {% if role.name == "admin" %}
     <a href="{{ url_for('admin_page') }}" class="admin-link">
