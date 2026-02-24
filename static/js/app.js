@@ -331,6 +331,27 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastSentMessage = null;
   let lastSentRole = null;
 
+  // Check if patient number is set and valid
+  function isPatientNumberSet() {
+    const identInput = document.getElementById('patientIdentifierInput');
+    const rawIdent = (identInput?.value || '').trim();
+    return !!(rawIdent || currentSessionPatientId);
+  }
+
+  // Show validation error for missing patient number
+  function showPatientRequiredError() {
+    const identInput = document.getElementById('patientIdentifierInput');
+    if (identInput) {
+      identInput.focus();
+      identInput.style.borderColor = '#ef4444';
+      identInput.style.boxShadow = '0 0 0 3px rgba(239, 68, 68, 0.2)';
+      setTimeout(() => {
+        identInput.style.borderColor = '';
+        identInput.style.boxShadow = '';
+      }, 3000);
+    }
+  }
+
   // Ensure patient from manual input is synced before any request that creates/uses a conversation.
   async function ensurePatientSyncedBeforeSend() {
     const identInput = document.getElementById('patientIdentifierInput');
@@ -349,6 +370,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const message = agentMessage?.value.trim();
     if (!message) {
       alert('Please enter a message');
+      return;
+    }
+
+    // Validate patient number is set before allowing conversation
+    if (!isPatientNumberSet()) {
+      showPatientRequiredError();
       return;
     }
 
@@ -713,6 +740,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (recordAudioBtn) {
     recordAudioBtn.addEventListener("click", async () => {
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        // Validate patient number is set before allowing voice recording
+        if (!isPatientNumberSet()) {
+          showPatientRequiredError();
+          return;
+        }
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
@@ -1180,6 +1212,23 @@ async function startLive() {
     return;
   }
   if (liveActive) return;
+
+  // Validate patient number is set before allowing live mode
+  const identInput = document.getElementById('patientIdentifierInput');
+  const rawIdent = (identInput?.value || '').trim();
+  if (!rawIdent && !currentSessionPatientId) {
+    if (identInput) {
+      identInput.focus();
+      identInput.style.borderColor = '#ef4444';
+      identInput.style.boxShadow = '0 0 0 3px rgba(239, 68, 68, 0.2)';
+      setTimeout(() => {
+        identInput.style.borderColor = '';
+        identInput.style.boxShadow = '';
+      }, 3000);
+    }
+    return;
+  }
+
   liveActive = true;
 
   const mime = 'audio/webm;codecs=opus';
@@ -1526,10 +1575,25 @@ function wireSetPatientButton() {
         await syncSessionPatient({});
         currentSessionPatientId = null;
         currentPatientIdentifier = '';
+        // Reset visual state
+        input.style.borderColor = '';
+        input.style.boxShadow = '';
+        btn.innerHTML = '<i data-lucide="check" style="width:10px;height:10px"></i> Set';
+        btn.classList.remove('btn-green-solid');
+        if (typeof lucide !== 'undefined') lucide.createIcons({ node: btn });
         return;
       }
       await syncSessionPatient({ patientIdentifier: raw });
+      // Show success feedback
+      input.style.borderColor = '#22c55e';
+      input.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.2)';
+      btn.innerHTML = '<i data-lucide="check-circle" style="width:10px;height:10px"></i> Set';
+      btn.classList.add('btn-green-solid');
+      if (typeof lucide !== 'undefined') lucide.createIcons({ node: btn });
     } catch (e) {
+      // Show error feedback
+      input.style.borderColor = '#ef4444';
+      input.style.boxShadow = '0 0 0 3px rgba(239, 68, 68, 0.2)';
       alert(e?.message || 'Could not set patient number');
     }
   });
@@ -1544,6 +1608,7 @@ function wireSetPatientButton() {
 // Hydrate patient input from session on page load (e.g. after refresh or navigate back).
 async function loadSessionPatient() {
   const input = document.getElementById('patientIdentifierInput');
+  const btn = document.getElementById('setPatientBtn');
   if (!input) return;
   try {
     const res = await fetch('/api/session-patient', { credentials: 'same-origin' });
@@ -1551,7 +1616,17 @@ async function loadSessionPatient() {
     if (data.ok && (data.patient_id != null || data.patient_identifier)) {
       currentSessionPatientId = data.patient_id || null;
       currentPatientIdentifier = data.patient_identifier || '';
-      if (currentPatientIdentifier) input.value = currentPatientIdentifier;
+      if (currentPatientIdentifier) {
+        input.value = currentPatientIdentifier;
+        // Show success visual state for previously set patient
+        input.style.borderColor = '#22c55e';
+        input.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.2)';
+        if (btn) {
+          btn.innerHTML = '<i data-lucide="check-circle" style="width:10px;height:10px"></i> Set';
+          btn.classList.add('btn-green-solid');
+          if (typeof lucide !== 'undefined') lucide.createIcons({ node: btn });
+        }
+      }
     }
   } catch (e) {
     console.warn('Could not load session patient:', e);

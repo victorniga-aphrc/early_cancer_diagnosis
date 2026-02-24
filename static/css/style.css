@@ -360,6 +360,12 @@ mark {
   opacity: 0.8;
 }
 
+.btn-green-solid {
+  background: var(--primary-green) !important;
+  color: white !important;
+  border: none;
+}
+
 .btn-outline {
   background: white;
   color: var(--gray-600);
