@@ -30,8 +30,8 @@ CHANGELOG.md
 ############################
 # Databases / Indexes
 ############################
-#app.db
-#*.db
+app.db
+*.db
 #*.sqlite
 #*.sqlite3
 #medical_cases.index
