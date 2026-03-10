@@ -422,7 +422,72 @@
     box-shadow: 0 0 0 3px rgba(123, 193, 72, 0.1);
   }
 
-  /* Responsive */
+  /* Responsive Two-Pane Layouts */
+  .history-container,
+  .conversations-container {
+    display: flex;
+    gap: 1.5rem;
+    min-height: 500px;
+  }
+
+  .history-list-panel,
+  .conversations-list-panel {
+    border-right: 1px solid var(--admin-border);
+    padding-right: 1rem;
+  }
+
+  .history-detail-panel,
+  .conversations-detail-panel {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Responsive - Large screens (1200px+) */
+  @media (min-width: 1200px) {
+    .history-list-panel { width: 380px; min-width: 320px; }
+    .conversations-list-panel { width: 420px; min-width: 360px; }
+  }
+
+  /* Responsive - Medium screens (992px - 1199px) */
+  @media (max-width: 1199px) {
+    .history-list-panel,
+    .conversations-list-panel {
+      width: 320px;
+      min-width: 280px;
+    }
+  }
+
+  /* Responsive - Tablet screens (768px - 991px) */
+  @media (max-width: 991px) {
+    .history-container,
+    .conversations-container {
+      flex-direction: column;
+      min-height: auto;
+    }
+
+    .history-list-panel,
+    .conversations-list-panel {
+      width: 100% !important;
+      min-width: 100% !important;
+      border-right: none;
+      border-bottom: 1px solid var(--admin-border);
+      padding-right: 0;
+      padding-bottom: 1rem;
+      max-height: 300px;
+    }
+
+    .history-detail-panel,
+    .conversations-detail-panel {
+      width: 100%;
+    }
+
+    #history-list,
+    #convos-list {
+      max-height: 250px !important;
+    }
+  }
+
+  /* Responsive - Small screens */
   @media (max-width: 768px) {
     .admin-container {
       padding: 1rem;
@@ -430,6 +495,11 @@
 
     .admin-tabs {
       overflow-x: auto;
+    }
+
+    .admin-tab {
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
     }
 
     .kpi-grid {
@@ -448,6 +518,49 @@
     .table-filters .form-control,
     .table-filters .form-select {
       max-width: 100%;
+    }
+
+    .admin-header h2 {
+      font-size: 1.4rem;
+    }
+
+    .data-table-card h5 {
+      font-size: 1.1rem;
+    }
+  }
+
+  /* Three-column detail view responsive */
+  .convos-detail-columns {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .convos-messages-col {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .convos-recs-col {
+    width: 280px;
+    min-width: 250px;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 1100px) {
+    .convos-recs-col {
+      width: 220px;
+      min-width: 200px;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .convos-detail-columns {
+      flex-direction: column;
+    }
+
+    .convos-recs-col {
+      width: 100%;
+      min-width: 100%;
     }
   }
 
@@ -481,9 +594,6 @@
         <p class="subtitle">Welcome back, {% if current_user.username %}{{ current_user.username }}{% elif current_user.email %}{{ current_user.email.split('@')[0] }}{% else %}Admin{% endif %}</p>
       </div>
       <div style="display: flex; gap: 0.75rem;">
-        <a href="/history" class="btn-admin-secondary" style="text-decoration: none;">
-          📋 History
-        </a>
         <a href="/" class="btn-admin-secondary" style="text-decoration: none;">
           ← Back to App
         </a>
@@ -499,6 +609,7 @@
   <!-- Tab Navigation -->
   <div class="admin-tabs">
     <button class="admin-tab active" data-tab="overview">📊 Overview</button>
+    <button class="admin-tab" data-tab="history">📋 History</button>
     <button class="admin-tab" data-tab="conversations">💬 Conversations</button>
     <button class="admin-tab" data-tab="clinicians">👨‍⚕️ Clinicians</button>
     <button class="admin-tab" data-tab="patients">🧑‍🤝‍🧑 Patients</button>
@@ -561,13 +672,56 @@
     </div>
   </div>
 
+  <!-- History Tab -->
+  <div id="tab-history" class="tab-content-panel">
+    <div class="data-table-card">
+      <h5>📋 My Conversation History</h5>
+      <p style="color: var(--admin-text-light); margin-bottom: 1rem;">View and manage your own conversations</p>
+
+      <div class="history-container">
+        <!-- Left: Conversation List -->
+        <div class="history-list-panel">
+          <div id="history-loading" style="text-align: center; padding: 2rem;">
+            <div class="spinner"></div>
+            <p style="color: var(--admin-text-light); margin-top: 0.5rem;">Loading conversations...</p>
+          </div>
+
+          <div id="history-empty" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">💬</div>
+            <p>No conversations yet</p>
+            <a href="/" class="btn-admin-primary" style="margin-top: 0.5rem; text-decoration: none;">Start Conversation</a>
+          </div>
+
+          <div id="history-list" style="display: none; max-height: 600px; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Right: Conversation Detail -->
+        <div class="history-detail-panel">
+          <div id="history-detail-placeholder" style="text-align: center; padding: 3rem; color: var(--admin-text-light);">
+            <div style="font-size: 3rem; opacity: 0.5; margin-bottom: 1rem;">💬</div>
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--admin-text);">No conversation selected</h4>
+            <p>Select a conversation from the list to view its messages</p>
+          </div>
+
+          <div id="history-detail-loading" style="display: none; text-align: center; padding: 2rem;">
+            <div class="spinner"></div>
+            <p style="color: var(--admin-text-light);">Loading conversation...</p>
+          </div>
+
+          <div id="history-detail-content" style="display: none;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Conversations Tab -->
   <div id="tab-conversations" class="tab-content-panel">
     <div class="data-table-card">
       <h5>💬 All Conversations</h5>
+      <p style="color: var(--admin-text-light); margin-bottom: 1rem;">View and manage all user conversations</p>
 
-      <!-- Filters (clinician first, then patient - cascading) -->
-      <div class="table-filters">
+      <!-- Filters -->
+      <div class="table-filters" style="margin-bottom: 1rem;">
         <select id="filter-clinician" class="form-select" title="Select clinician first to filter patients">
           <option value="">All Clinicians</option>
         </select>
@@ -577,29 +731,44 @@
         <input type="text" id="search-conversation" class="form-control" placeholder="Search by ID, clinician, or patient...">
       </div>
 
-      <!-- Table -->
-      <div class="table-container">
-        <table class="admin-table" id="tbl-convos">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Clinician</th>
-              <th>Patient</th>
-              <th>Created</th>
-              <th style="text-align: center;">Messages</th>
-              <th style="text-align: right;">Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
+      <div class="conversations-container">
+        <!-- Left: Conversation List -->
+        <div class="conversations-list-panel">
+          <div id="convos-loading" style="text-align: center; padding: 2rem;">
+            <div class="spinner"></div>
+            <p style="color: var(--admin-text-light); margin-top: 0.5rem;">Loading conversations...</p>
+          </div>
 
-      <!-- Load More -->
-      <div style="text-align: center; margin-top: 1rem;">
-        <button id="load-more-convos" class="btn-admin-secondary">Load More</button>
+          <div id="convos-empty" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">💬</div>
+            <p>No conversations found</p>
+          </div>
+
+          <div id="convos-list" style="display: none; max-height: 550px; overflow-y: auto;"></div>
+
+          <!-- Load More -->
+          <div id="convos-load-more-wrapper" style="text-align: center; margin-top: 1rem; display: none;">
+            <button id="load-more-convos" class="btn-admin-secondary">Load More</button>
+          </div>
+        </div>
+
+        <!-- Right: Conversation Detail -->
+        <div class="conversations-detail-panel">
+          <div id="convos-detail-placeholder" style="text-align: center; padding: 3rem; color: var(--admin-text-light);">
+            <div style="font-size: 3rem; opacity: 0.5; margin-bottom: 1rem;">💬</div>
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--admin-text);">No conversation selected</h4>
+            <p>Select a conversation from the list to view its messages</p>
+          </div>
+
+          <div id="convos-detail-loading" style="display: none; text-align: center; padding: 2rem;">
+            <div class="spinner"></div>
+            <p style="color: var(--admin-text-light);">Loading conversation...</p>
+          </div>
+
+          <div id="convos-detail-content" style="display: none;"></div>
+        </div>
       </div>
     </div>
-
   </div>
 
   <!-- Users Tab -->
@@ -793,6 +962,7 @@
                 <th>Patient</th>
                 <th>Clinician</th>
                 <th>Top Symptoms</th>
+                <th style="text-align: center;">Likelihood</th>
                 <th style="text-align: right;">Actions</th>
               </tr>
             </thead>

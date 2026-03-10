@@ -331,6 +331,27 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastSentMessage = null;
   let lastSentRole = null;
 
+  // Check if patient number is set and valid
+  function isPatientNumberSet() {
+    const identInput = document.getElementById('patientIdentifierInput');
+    const rawIdent = (identInput?.value || '').trim();
+    return !!(rawIdent || currentSessionPatientId);
+  }
+
+  // Show validation error for missing patient number
+  function showPatientRequiredError() {
+    const identInput = document.getElementById('patientIdentifierInput');
+    if (identInput) {
+      identInput.focus();
+      identInput.style.borderColor = '#ef4444';
+      identInput.style.boxShadow = '0 0 0 3px rgba(239, 68, 68, 0.2)';
+      setTimeout(() => {
+        identInput.style.borderColor = '';
+        identInput.style.boxShadow = '';
+      }, 3000);
+    }
+  }
+
   // Ensure patient from manual input is synced before any request that creates/uses a conversation.
   async function ensurePatientSyncedBeforeSend() {
     const identInput = document.getElementById('patientIdentifierInput');
@@ -349,6 +370,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const message = agentMessage?.value.trim();
     if (!message) {
       alert('Please enter a message');
+      return;
+    }
+
+    // Validate patient number is set before allowing conversation
+    if (!isPatientNumberSet()) {
+      showPatientRequiredError();
       return;
     }
 
@@ -518,18 +545,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
       try {
-        // Resolve manually entered patient number before creating a fresh conversation.
-        const identInput = document.getElementById('patientIdentifierInput');
-        const rawIdent = (identInput?.value || '').trim();
-        if (rawIdent && !currentSessionPatientId) {
-          await syncSessionPatient({ patientIdentifier: rawIdent });
-        }
-
         await fetch('/reset_conv', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRFToken': (window.CSRF_TOKEN || '') },
           credentials: 'same-origin',
-          body: JSON.stringify(currentSessionPatientId ? { patient_id: currentSessionPatientId } : {})
+          body: JSON.stringify({})
         });
 
         await fetch('/live/reset_plan', {
@@ -565,6 +585,22 @@ document.addEventListener("DOMContentLoaded", () => {
         // Clear suggestion box
         suggestionBox?.classList.add('hidden');
         window.lastSuggestion = null;
+
+        // Clear patient identifier
+        const patientInput = document.getElementById('patientIdentifierInput');
+        const setPatientBtn = document.getElementById('setPatientBtn');
+        if (patientInput) {
+          patientInput.value = '';
+          patientInput.style.borderColor = '';
+          patientInput.style.boxShadow = '';
+        }
+        if (setPatientBtn) {
+          setPatientBtn.innerHTML = '<i data-lucide="check" style="width:10px;height:10px"></i> Set';
+          setPatientBtn.classList.remove('btn-green-solid');
+          if (typeof lucide !== 'undefined') lucide.createIcons({ node: setPatientBtn });
+        }
+        currentSessionPatientId = null;
+        currentPatientIdentifier = '';
 
       } catch (err) {
         console.error('Reset error:', err);
@@ -617,6 +653,26 @@ document.addEventListener("DOMContentLoaded", () => {
   // Finalize Button - Show Summary Panel
   if (finalizeBtn) {
     finalizeBtn.addEventListener('click', () => {
+      // Validate patient number is set
+      if (!isPatientNumberSet()) {
+        showPatientRequiredError();
+        return;
+      }
+
+      // Validate conversation has messages
+      if (messageCount === 0) {
+        const transcriptEl = document.getElementById('agentChatTranscript');
+        if (transcriptEl) {
+          transcriptEl.style.borderColor = '#ef4444';
+          transcriptEl.style.boxShadow = '0 0 0 3px rgba(239, 68, 68, 0.2)';
+          setTimeout(() => {
+            transcriptEl.style.borderColor = '';
+            transcriptEl.style.boxShadow = '';
+          }, 3000);
+        }
+        return;
+      }
+
       if (panelRight) {
         panelRight.classList.remove('hidden');
         resizeRight?.classList.remove('hidden');
@@ -629,8 +685,18 @@ document.addEventListener("DOMContentLoaded", () => {
       const language = languageMode?.value || 'bilingual';
       const mode = chatMode?.value || 'real';
 
+      // Flag to prevent duplicate unasked question fetches
+      let unaskedFetched = false;
+      const fetchUnaskedOnce = () => {
+        if (unaskedFetched) return;
+        unaskedFetched = true;
+        fetchAndDisplayUnaskedQuestions(language);
+      };
+
       if (mode === 'simulated') {
         // Simulated: summary/plan already arrived in main stream; panel was updated via updateSummaryPanelFromMessage
+        // Still fetch unasked questions
+        fetchUnaskedOnce();
       } else {
         // Real/Live: call API to generate summary from conversation
         if (patientSummary) patientSummary.innerHTML = '<em>Generating summary...</em>';
@@ -649,9 +715,61 @@ document.addEventListener("DOMContentLoaded", () => {
 
         eventSource.onerror = () => {
           eventSource.close();
+          // Fetch unasked questions after summary is complete
+          fetchUnaskedOnce();
         };
+
+        // Timeout fallback to fetch unasked questions
+        setTimeout(() => {
+          fetchUnaskedOnce();
+        }, 5000);
       }
     });
+  }
+
+  // Fetch and display unasked questions in the summary panel
+  async function fetchAndDisplayUnaskedQuestions(language) {
+    const followUp = document.getElementById('followUp');
+    if (!followUp) return;
+
+    try {
+      const res = await fetch(`/live/unasked?lang=${encodeURIComponent(language)}`, {
+        credentials: 'same-origin'
+      });
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const unasked = data.unasked || [];
+
+      if (unasked.length === 0) {
+        followUp.innerHTML = 'All recommended questions have been addressed. Schedule a follow-up appointment to review findings.';
+        return;
+      }
+
+      // Build unasked questions HTML
+      const unaskedHTML = unasked.slice(0, 10).map((item, i) => {
+        const q = typeof item === 'string' ? item : (item.question || '');
+        const score = (typeof item === 'object' && item.score != null)
+          ? ` <span style="font-size:0.7rem;color:var(--gray-400)">(${parseFloat(item.score).toFixed(2)})</span>`
+          : '';
+        return `<li style="margin-bottom:6px;color:var(--gray-700)">${i + 1}. ${q}${score}</li>`;
+      }).join('');
+
+      followUp.innerHTML = `
+        <div style="margin-bottom:12px">
+          <strong style="color:var(--primary-orange,#f97316)">Unasked Questions:</strong>
+          <ol style="margin-top:8px;padding-left:1.2em;list-style:none">
+            ${unaskedHTML}
+          </ol>
+        </div>
+        <p style="margin-top:8px;font-size:0.8rem;color:var(--gray-500)">
+          Review these questions and schedule a follow-up to close diagnostic gaps.
+        </p>
+      `;
+    } catch (err) {
+      console.warn('Could not fetch unasked questions:', err);
+      followUp.innerHTML = 'Schedule a follow-up appointment to review findings and next steps.';
+    }
   }
 
   // Close Summary Panel
@@ -713,6 +831,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (recordAudioBtn) {
     recordAudioBtn.addEventListener("click", async () => {
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        // Validate patient number is set before allowing voice recording
+        if (!isPatientNumberSet()) {
+          showPatientRequiredError();
+          return;
+        }
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
@@ -1180,6 +1303,23 @@ async function startLive() {
     return;
   }
   if (liveActive) return;
+
+  // Validate patient number is set before allowing live mode
+  const identInput = document.getElementById('patientIdentifierInput');
+  const rawIdent = (identInput?.value || '').trim();
+  if (!rawIdent && !currentSessionPatientId) {
+    if (identInput) {
+      identInput.focus();
+      identInput.style.borderColor = '#ef4444';
+      identInput.style.boxShadow = '0 0 0 3px rgba(239, 68, 68, 0.2)';
+      setTimeout(() => {
+        identInput.style.borderColor = '';
+        identInput.style.boxShadow = '';
+      }, 3000);
+    }
+    return;
+  }
+
   liveActive = true;
 
   const mime = 'audio/webm;codecs=opus';
@@ -1526,10 +1666,25 @@ function wireSetPatientButton() {
         await syncSessionPatient({});
         currentSessionPatientId = null;
         currentPatientIdentifier = '';
+        // Reset visual state
+        input.style.borderColor = '';
+        input.style.boxShadow = '';
+        btn.innerHTML = '<i data-lucide="check" style="width:10px;height:10px"></i> Set';
+        btn.classList.remove('btn-green-solid');
+        if (typeof lucide !== 'undefined') lucide.createIcons({ node: btn });
         return;
       }
       await syncSessionPatient({ patientIdentifier: raw });
+      // Show success feedback
+      input.style.borderColor = '#22c55e';
+      input.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.2)';
+      btn.innerHTML = '<i data-lucide="check-circle" style="width:10px;height:10px"></i> Set';
+      btn.classList.add('btn-green-solid');
+      if (typeof lucide !== 'undefined') lucide.createIcons({ node: btn });
     } catch (e) {
+      // Show error feedback
+      input.style.borderColor = '#ef4444';
+      input.style.boxShadow = '0 0 0 3px rgba(239, 68, 68, 0.2)';
       alert(e?.message || 'Could not set patient number');
     }
   });
@@ -1544,6 +1699,7 @@ function wireSetPatientButton() {
 // Hydrate patient input from session on page load (e.g. after refresh or navigate back).
 async function loadSessionPatient() {
   const input = document.getElementById('patientIdentifierInput');
+  const btn = document.getElementById('setPatientBtn');
   if (!input) return;
   try {
     const res = await fetch('/api/session-patient', { credentials: 'same-origin' });
@@ -1551,7 +1707,17 @@ async function loadSessionPatient() {
     if (data.ok && (data.patient_id != null || data.patient_identifier)) {
       currentSessionPatientId = data.patient_id || null;
       currentPatientIdentifier = data.patient_identifier || '';
-      if (currentPatientIdentifier) input.value = currentPatientIdentifier;
+      if (currentPatientIdentifier) {
+        input.value = currentPatientIdentifier;
+        // Show success visual state for previously set patient
+        input.style.borderColor = '#22c55e';
+        input.style.boxShadow = '0 0 0 3px rgba(34, 197, 94, 0.2)';
+        if (btn) {
+          btn.innerHTML = '<i data-lucide="check-circle" style="width:10px;height:10px"></i> Set';
+          btn.classList.add('btn-green-solid');
+          if (typeof lucide !== 'undefined') lucide.createIcons({ node: btn });
+        }
+      }
     }
   } catch (e) {
     console.warn('Could not load session patient:', e);

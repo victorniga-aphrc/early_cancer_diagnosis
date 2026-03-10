@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}My Conversations | Medical Case Search{% endblock %}
+{% block title %}Conversation History | Admin{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -624,16 +624,14 @@
         <i data-lucide="home"></i>
         <span>Home</span>
       </a>
-      <a href="{{ url_for('history_page') }}" class="nav-link active">
-        <i data-lucide="clock"></i>
-        <span>History</span>
-      </a>
-      {% if current_user.is_authenticated and current_user.is_admin %}
       <a href="{{ url_for('admin_page') }}" class="nav-link">
         <i data-lucide="shield"></i>
         <span>Admin</span>
       </a>
-      {% endif %}
+      <a href="{{ url_for('history_page') }}" class="nav-link active">
+        <i data-lucide="clock"></i>
+        <span>History</span>
+      </a>
     </nav>
   </div>
   <div class="menu-right">
@@ -666,9 +664,9 @@
     <div class="sidebar-header">
       <h2>
         <i data-lucide="clock"></i>
-        My Conversations
+        Conversation History
       </h2>
-      <p>Select a conversation to view details</p>
+      <p>Admin view - Select a conversation to view details</p>
     </div>
 
     <div id="sidebar-loading" class="loading-state">
