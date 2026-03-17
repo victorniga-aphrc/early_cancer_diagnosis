@@ -849,64 +849,150 @@ def conversation_disease_likelihoods(cid):
 # --------------------------
 # Export Utilities
 # --------------------------
-def _generate_pdf_report(title: str, headers: list, rows: list, subtitle: str = None) -> bytes:
-    """Generate a PDF report with table data."""
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import letter, landscape
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+def _escape_html(text: str) -> str:
+    """Escape HTML special characters."""
+    if not text:
+        return ""
+    return (str(text)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;"))
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), topMargin=0.5*inch, bottomMargin=0.5*inch)
-    styles = getSampleStyleSheet()
-    elements = []
 
-    # Title
-    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, spaceAfter=12, textColor=colors.HexColor('#7bc148'))
-    elements.append(Paragraph(title, title_style))
+def _generate_html_report(title: str, headers: list, rows: list, subtitle: str = None) -> str:
+    """Generate an HTML report with table data and print-friendly CSS."""
+    rows_html = ""
+    for i, row in enumerate(rows):
+        row_class = "even" if i % 2 == 0 else "odd"
+        cells = "".join(f'<td>{_escape_html(str(cell) if cell else "—")}</td>' for cell in row)
+        rows_html += f'<tr class="{row_class}">{cells}</tr>\n'
 
-    if subtitle:
-        subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, textColor=colors.gray, spaceAfter=20)
-        elements.append(Paragraph(subtitle, subtitle_style))
+    headers_html = "".join(f'<th>{_escape_html(h)}</th>' for h in headers)
 
-    elements.append(Spacer(1, 12))
-
-    # Table data
-    table_data = [headers] + rows
-
-    # Calculate column widths
-    num_cols = len(headers)
-    available_width = 10 * inch
-    col_width = available_width / num_cols
-
-    table = Table(table_data, colWidths=[col_width] * num_cols)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#7bc148')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 9),
-        ('TOPPADDING', (0, 1), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
-    ]))
-
-    elements.append(table)
-
-    # Footer
-    elements.append(Spacer(1, 20))
-    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.gray)
-    elements.append(Paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Early Cancer Diagnosis System", footer_style))
-
-    doc.build(elements)
-    return buffer.getvalue()
+    html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{_escape_html(title)}</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f9fafb;
+            color: #1f2937;
+            padding: 2rem;
+            line-height: 1.5;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 2rem;
+        }}
+        .header {{
+            border-bottom: 2px solid #7bc148;
+            padding-bottom: 1rem;
+            margin-bottom: 1.5rem;
+        }}
+        h1 {{
+            color: #7bc148;
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }}
+        .subtitle {{
+            color: #6b7280;
+            font-size: 0.95rem;
+        }}
+        .actions {{
+            margin-bottom: 1.5rem;
+            display: flex;
+            gap: 0.75rem;
+        }}
+        .btn {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1.25rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }}
+        .btn-primary {{
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            color: white;
+        }}
+        .btn-primary:hover {{ background: linear-gradient(135deg, #2563eb, #1e40af); }}
+        .btn-secondary {{
+            background: white;
+            color: #1f2937;
+            border: 1px solid #e5e7eb;
+        }}
+        .btn-secondary:hover {{ background: #f9fafb; }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }}
+        th {{
+            background: #7bc148;
+            color: white;
+            padding: 0.875rem 1rem;
+            text-align: left;
+            font-weight: 600;
+        }}
+        td {{
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }}
+        tr.odd {{ background: white; }}
+        tr.even {{ background: #f9fafb; }}
+        tr:hover {{ background: #f3f4f6; }}
+        .footer {{
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 0.8rem;
+            text-align: center;
+        }}
+        @media print {{
+            body {{ background: white; padding: 0; }}
+            .container {{ box-shadow: none; padding: 0; }}
+            .actions {{ display: none; }}
+            .footer {{ margin-top: 1rem; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{_escape_html(title)}</h1>
+            {f'<p class="subtitle">{_escape_html(subtitle)}</p>' if subtitle else ''}
+        </div>
+        <div class="actions">
+            <button class="btn btn-primary" onclick="window.print()">🖨️ Print / Save as PDF</button>
+            <button class="btn btn-secondary" onclick="window.close()">✕ Close</button>
+        </div>
+        <table>
+            <thead><tr>{headers_html}</tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+        <div class="footer">
+            Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} — Early Cancer Diagnosis System
+        </div>
+    </div>
+</body>
+</html>'''
+    return html
 
 
 def _generate_word_report(title: str, headers: list, rows: list, subtitle: str = None) -> bytes:
@@ -960,25 +1046,8 @@ def _generate_word_report(title: str, headers: list, rows: list, subtitle: str =
     return buffer.getvalue()
 
 
-def _generate_conversation_pdf(conv_data: dict, messages: list, patient_label: str, clinician_label: str) -> bytes:
-    """Generate a PDF for conversation/chat history."""
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import letter
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.75*inch, bottomMargin=0.75*inch)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    # Title
-    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, spaceAfter=6, textColor=colors.HexColor('#7bc148'))
-    elements.append(Paragraph("Conversation Transcript", title_style))
-
-    # Metadata
-    meta_style = ParagraphStyle('Meta', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#6b7280'), spaceAfter=4)
+def _generate_conversation_html(conv_data: dict, messages: list, patient_label: str, clinician_label: str) -> str:
+    """Generate an HTML report for conversation/chat history."""
     created = conv_data.get('created_at', '')
     if created:
         try:
@@ -986,41 +1055,183 @@ def _generate_conversation_pdf(conv_data: dict, messages: list, patient_label: s
         except:
             pass
 
-    elements.append(Paragraph(f"<b>Patient:</b> {patient_label}", meta_style))
-    elements.append(Paragraph(f"<b>Clinician:</b> {clinician_label}", meta_style))
-    elements.append(Paragraph(f"<b>Date:</b> {created}", meta_style))
-    elements.append(Paragraph(f"<b>Messages:</b> {len(messages)}", meta_style))
-    elements.append(Spacer(1, 16))
-
-    # Messages
-    role_colors = {
-        'patient': '#1e40af',
-        'clinician': '#166534',
-        'Question Recommender': '#92400e',
-        'Listener': '#166534',
+    role_styles = {
+        'patient': ('bg: #dbeafe; color: #1e40af;', '👤'),
+        'clinician': ('bg: #dcfce7; color: #166534;', '🩺'),
+        'Question Recommender': ('bg: #fef3c7; color: #92400e;', '💡'),
+        'Listener': ('bg: rgba(123,193,72,0.15); color: #166534;', '📋'),
     }
 
+    messages_html = ""
     for msg in messages:
         role = msg.get('role', 'Unknown')
-        text = msg.get('text') or msg.get('message') or ''
+        text = _escape_html(msg.get('text') or msg.get('message') or '')
         timestamp = msg.get('timestamp', '')
-        color = role_colors.get(role, '#4b5563')
+        style_info = role_styles.get(role, ('bg: #f3f4f6; color: #4b5563;', '🤖'))
+        bg_color = style_info[0].split(';')[0].replace('bg: ', '')
+        text_color = style_info[0].split(';')[1].replace(' color: ', '').replace(';', '')
+        icon = style_info[1]
 
-        role_style = ParagraphStyle('Role', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor(color), fontName='Helvetica-Bold')
-        msg_style = ParagraphStyle('Message', parent=styles['Normal'], fontSize=10, spaceAfter=12, leading=14)
+        messages_html += f'''
+        <div class="message">
+            <div class="message-header">
+                <span class="role-badge" style="background: {bg_color}; color: {text_color};">
+                    {icon} {_escape_html(role)}
+                </span>
+                <span class="timestamp">{_escape_html(timestamp)}</span>
+            </div>
+            <div class="message-text">{text.replace(chr(10), '<br>')}</div>
+        </div>'''
 
-        elements.append(Paragraph(f"{role} [{timestamp}]", role_style))
-        # Clean text for PDF
-        clean_text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        elements.append(Paragraph(clean_text, msg_style))
-
-    # Footer
-    elements.append(Spacer(1, 20))
-    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.gray)
-    elements.append(Paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Early Cancer Diagnosis System", footer_style))
-
-    doc.build(elements)
-    return buffer.getvalue()
+    html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversation Transcript</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f9fafb;
+            color: #1f2937;
+            padding: 2rem;
+            line-height: 1.6;
+        }}
+        .container {{
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 2rem;
+        }}
+        .header {{
+            border-bottom: 2px solid #7bc148;
+            padding-bottom: 1rem;
+            margin-bottom: 1.5rem;
+        }}
+        h1 {{
+            color: #7bc148;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }}
+        .meta {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.75rem;
+            color: #6b7280;
+            font-size: 0.9rem;
+        }}
+        .meta-item {{ display: flex; gap: 0.5rem; }}
+        .meta-item strong {{ color: #374151; }}
+        .actions {{
+            margin-bottom: 1.5rem;
+            display: flex;
+            gap: 0.75rem;
+        }}
+        .btn {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1.25rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }}
+        .btn-primary {{
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            color: white;
+        }}
+        .btn-primary:hover {{ background: linear-gradient(135deg, #2563eb, #1e40af); }}
+        .btn-secondary {{
+            background: white;
+            color: #1f2937;
+            border: 1px solid #e5e7eb;
+        }}
+        .btn-secondary:hover {{ background: #f9fafb; }}
+        .messages-section {{
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 1rem;
+        }}
+        .message {{
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            border: 1px solid #e5e7eb;
+        }}
+        .message:last-child {{ margin-bottom: 0; }}
+        .message-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }}
+        .role-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.625rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }}
+        .timestamp {{
+            font-size: 0.75rem;
+            color: #6b7280;
+        }}
+        .message-text {{
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }}
+        .footer {{
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 0.8rem;
+            text-align: center;
+        }}
+        @media print {{
+            body {{ background: white; padding: 0.5rem; }}
+            .container {{ box-shadow: none; padding: 1rem; }}
+            .actions {{ display: none; }}
+            .messages-section {{ background: white; padding: 0; }}
+            .message {{ page-break-inside: avoid; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💬 Conversation Transcript</h1>
+            <div class="meta">
+                <div class="meta-item"><strong>Patient:</strong> {_escape_html(patient_label)}</div>
+                <div class="meta-item"><strong>Clinician:</strong> {_escape_html(clinician_label)}</div>
+                <div class="meta-item"><strong>Date:</strong> {_escape_html(created)}</div>
+                <div class="meta-item"><strong>Messages:</strong> {len(messages)}</div>
+            </div>
+        </div>
+        <div class="actions">
+            <button class="btn btn-primary" onclick="window.print()">🖨️ Print / Save as PDF</button>
+            <button class="btn btn-secondary" onclick="window.close()">✕ Close</button>
+        </div>
+        <div class="messages-section">
+            {messages_html}
+        </div>
+        <div class="footer">
+            Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} — Early Cancer Diagnosis System
+        </div>
+    </div>
+</body>
+</html>'''
+    return html
 
 
 def _generate_conversation_word(conv_data: dict, messages: list, patient_label: str, clinician_label: str) -> bytes:
@@ -1096,12 +1307,12 @@ def _generate_conversation_word(conv_data: dict, messages: list, patient_label: 
 @admin_bp.get("/api/export/users/<format>")
 @login_required
 def export_users(format: str):
-    """Export users list to PDF or Word."""
+    """Export users list to HTML or Word."""
     if not _require_admin():
         return admin_guard()
 
-    if format not in ('pdf', 'docx'):
-        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+    if format not in ('html', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'html' or 'docx'"}), 400
 
     db = SessionLocal()
     try:
@@ -1117,10 +1328,9 @@ def export_users(format: str):
         title = "Users Report"
         subtitle = f"Total: {len(users)} users"
 
-        if format == 'pdf':
-            content = _generate_pdf_report(title, headers, rows, subtitle)
-            return Response(content, mimetype='application/pdf',
-                          headers={'Content-Disposition': 'attachment; filename=users_report.pdf'})
+        if format == 'html':
+            content = _generate_html_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='text/html')
         else:
             content = _generate_word_report(title, headers, rows, subtitle)
             return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -1135,12 +1345,12 @@ def export_users(format: str):
 @admin_bp.get("/api/export/clinicians/<format>")
 @login_required
 def export_clinicians(format: str):
-    """Export clinicians list to PDF or Word."""
+    """Export clinicians list to HTML or Word."""
     if not _require_admin():
         return admin_guard()
 
-    if format not in ('pdf', 'docx'):
-        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+    if format not in ('html', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'html' or 'docx'"}), 400
 
     db = SessionLocal()
     try:
@@ -1164,10 +1374,9 @@ def export_clinicians(format: str):
         title = "Clinicians Report"
         subtitle = f"Total: {len(rows_data)} clinicians"
 
-        if format == 'pdf':
-            content = _generate_pdf_report(title, headers, rows, subtitle)
-            return Response(content, mimetype='application/pdf',
-                          headers={'Content-Disposition': 'attachment; filename=clinicians_report.pdf'})
+        if format == 'html':
+            content = _generate_html_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='text/html')
         else:
             content = _generate_word_report(title, headers, rows, subtitle)
             return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -1182,12 +1391,12 @@ def export_clinicians(format: str):
 @admin_bp.get("/api/export/patients/<format>")
 @login_required
 def export_patients(format: str):
-    """Export patients list to PDF or Word."""
+    """Export patients list to HTML or Word."""
     if not _require_admin():
         return admin_guard()
 
-    if format not in ('pdf', 'docx'):
-        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+    if format not in ('html', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'html' or 'docx'"}), 400
 
     db = SessionLocal()
     try:
@@ -1208,10 +1417,9 @@ def export_patients(format: str):
         title = "Patients Report"
         subtitle = f"Total: {len(patients_data)} patients"
 
-        if format == 'pdf':
-            content = _generate_pdf_report(title, headers, rows, subtitle)
-            return Response(content, mimetype='application/pdf',
-                          headers={'Content-Disposition': 'attachment; filename=patients_report.pdf'})
+        if format == 'html':
+            content = _generate_html_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='text/html')
         else:
             content = _generate_word_report(title, headers, rows, subtitle)
             return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -1226,12 +1434,12 @@ def export_patients(format: str):
 @admin_bp.get("/api/export/conversations/<format>")
 @login_required
 def export_conversations(format: str):
-    """Export all conversations list to PDF or Word."""
+    """Export all conversations list to HTML or Word."""
     if not _require_admin():
         return admin_guard()
 
-    if format not in ('pdf', 'docx'):
-        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+    if format not in ('html', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'html' or 'docx'"}), 400
 
     db = SessionLocal()
     try:
@@ -1273,10 +1481,9 @@ def export_conversations(format: str):
         title = "Conversations Report"
         subtitle = f"Total: {len(rows_data)} conversations"
 
-        if format == 'pdf':
-            content = _generate_pdf_report(title, headers, rows, subtitle)
-            return Response(content, mimetype='application/pdf',
-                          headers={'Content-Disposition': 'attachment; filename=conversations_report.pdf'})
+        if format == 'html':
+            content = _generate_html_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='text/html')
         else:
             content = _generate_word_report(title, headers, rows, subtitle)
             return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -1291,12 +1498,12 @@ def export_conversations(format: str):
 @admin_bp.get("/api/export/conversation/<cid>/<format>")
 @login_required
 def export_conversation_detail(cid: str, format: str):
-    """Export a single conversation (chat history) to PDF or Word."""
+    """Export a single conversation (chat history) to HTML or Word."""
     if not _require_admin():
         return admin_guard()
 
-    if format not in ('pdf', 'docx'):
-        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+    if format not in ('html', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'html' or 'docx'"}), 400
 
     db = SessionLocal()
     try:
@@ -1347,11 +1554,9 @@ def export_conversation_detail(cid: str, format: str):
             "created_at": conversation.created_at.isoformat() if conversation.created_at else "",
         }
 
-        if format == 'pdf':
-            content = _generate_conversation_pdf(conv_data, messages, patient_label, clinician_label)
-            filename = f"conversation_{cid[:8]}.pdf"
-            return Response(content, mimetype='application/pdf',
-                          headers={'Content-Disposition': f'attachment; filename={filename}'})
+        if format == 'html':
+            content = _generate_conversation_html(conv_data, messages, patient_label, clinician_label)
+            return Response(content, mimetype='text/html')
         else:
             content = _generate_conversation_word(conv_data, messages, patient_label, clinician_label)
             filename = f"conversation_{cid[:8]}.docx"
@@ -1367,12 +1572,12 @@ def export_conversation_detail(cid: str, format: str):
 @admin_bp.get("/api/export/analytics/<format>")
 @login_required
 def export_analytics(format: str):
-    """Export symptoms analytics to PDF or Word."""
+    """Export symptoms analytics to HTML or Word."""
     if not _require_admin():
         return admin_guard()
 
-    if format not in ('pdf', 'docx'):
-        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+    if format not in ('html', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'html' or 'docx'"}), 400
 
     db = SessionLocal()
     try:
@@ -1423,10 +1628,9 @@ def export_analytics(format: str):
         title = "Symptoms Analytics Report"
         subtitle = f"Analysis of {len(convo_rows)} conversations"
 
-        if format == 'pdf':
-            content = _generate_pdf_report(title, headers, rows, subtitle)
-            return Response(content, mimetype='application/pdf',
-                          headers={'Content-Disposition': 'attachment; filename=analytics_report.pdf'})
+        if format == 'html':
+            content = _generate_html_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='text/html')
         else:
             content = _generate_word_report(title, headers, rows, subtitle)
             return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',

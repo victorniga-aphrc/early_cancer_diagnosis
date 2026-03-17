@@ -158,9 +158,16 @@ function exportReport(reportType, format) {
   // Close the menu
   document.querySelectorAll('.export-menu.show').forEach(m => m.classList.remove('show'));
 
-  showLoading();
-
   const url = `/admin/api/export/${reportType}/${format}`;
+
+  if (format === 'html') {
+    // Open HTML report in new tab for viewing/printing
+    window.open(url, '_blank');
+    return;
+  }
+
+  // For Word documents, download the file
+  showLoading();
 
   fetch(url, { credentials: 'same-origin' })
     .then(response => {
@@ -173,19 +180,18 @@ function exportReport(reportType, format) {
       hideLoading();
 
       // Create download link
-      const url = window.URL.createObjectURL(blob);
+      const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = blobUrl;
 
       // Generate filename
-      const extension = format === 'pdf' ? 'pdf' : 'docx';
       const timestamp = new Date().toISOString().slice(0, 10);
-      a.download = `${reportType}_report_${timestamp}.${extension}`;
+      a.download = `${reportType}_report_${timestamp}.docx`;
 
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(blobUrl);
 
       showAlert(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} report exported successfully!`, 'success');
     })
@@ -204,9 +210,16 @@ function exportConversation(convId, format) {
   // Close the menu
   document.querySelectorAll('.export-menu.show').forEach(m => m.classList.remove('show'));
 
-  showLoading();
-
   const url = `/admin/api/export/conversation/${encodeURIComponent(convId)}/${format}`;
+
+  if (format === 'html') {
+    // Open HTML report in new tab for viewing/printing
+    window.open(url, '_blank');
+    return;
+  }
+
+  // For Word documents, download the file
+  showLoading();
 
   fetch(url, { credentials: 'same-origin' })
     .then(response => {
@@ -218,18 +231,17 @@ function exportConversation(convId, format) {
     .then(blob => {
       hideLoading();
 
-      const url = window.URL.createObjectURL(blob);
+      const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = blobUrl;
 
-      const extension = format === 'pdf' ? 'pdf' : 'docx';
       const shortId = String(convId).slice(0, 8);
-      a.download = `conversation_${shortId}.${extension}`;
+      a.download = `conversation_${shortId}.docx`;
 
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(blobUrl);
 
       showAlert('Conversation exported successfully!', 'success');
     })
@@ -681,8 +693,8 @@ function renderConversationDetail(convId, data) {
             📥 Export <span style="font-size: 0.7rem;">▼</span>
           </button>
           <div id="conv-detail-export-menu" class="export-menu">
-            <button class="export-menu-item" onclick="exportConversation('${convId}', 'pdf')">
-              <span class="icon-pdf">📄</span> Export to PDF
+            <button class="export-menu-item" onclick="exportConversation('${convId}', 'html')">
+              <span class="icon-pdf">📄</span> View / Print PDF
             </button>
             <button class="export-menu-item" onclick="exportConversation('${convId}', 'docx')">
               <span class="icon-word">📝</span> Export to Word
@@ -1725,8 +1737,8 @@ function renderHistoryDetail(convId, data) {
             📥 Export <span style="font-size: 0.7rem;">▼</span>
           </button>
           <div id="history-detail-export-menu" class="export-menu">
-            <button class="export-menu-item" onclick="exportConversation('${convId}', 'pdf')">
-              <span class="icon-pdf">📄</span> Export to PDF
+            <button class="export-menu-item" onclick="exportConversation('${convId}', 'html')">
+              <span class="icon-pdf">📄</span> View / Print PDF
             </button>
             <button class="export-menu-item" onclick="exportConversation('${convId}', 'docx')">
               <span class="icon-word">📝</span> Export to Word

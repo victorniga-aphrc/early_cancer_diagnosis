@@ -291,7 +291,7 @@
   }
 
   .export-btn {
-    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    background: var(--admin-primary);
     color: white;
     border: none;
     padding: 0.5rem 1rem;
@@ -305,7 +305,7 @@
   }
 
   .export-btn:hover {
-    background: linear-gradient(135deg, #2563eb, #1e40af);
+    background: #6ba83d;
     transform: translateY(-1px);
   }
 
@@ -751,11 +751,11 @@
         <div id="history-export-wrapper" style="display: none;">
           <div class="export-dropdown">
             <button class="export-btn btn-admin-sm" onclick="toggleExportMenu('history-export-menu')">
-              📥 Export Selected <span style="font-size: 0.7rem;">▼</span>
+              📤 Export Selected <span style="font-size: 0.7rem;">▼</span>
             </button>
             <div id="history-export-menu" class="export-menu">
-              <button class="export-menu-item" onclick="exportSelectedConversation('history', 'pdf')">
-                <span class="icon-pdf">📄</span> Export to PDF
+              <button class="export-menu-item" onclick="exportSelectedConversation('history', 'html')">
+                <span class="icon-pdf">📄</span> View / Print PDF
               </button>
               <button class="export-menu-item" onclick="exportSelectedConversation('history', 'docx')">
                 <span class="icon-word">📝</span> Export to Word
@@ -809,11 +809,11 @@
         <h5 style="margin: 0;">💬 All Conversations</h5>
         <div class="export-dropdown">
           <button class="export-btn" onclick="toggleExportMenu('conversations-export-menu')">
-            📥 Export All <span style="font-size: 0.7rem;">▼</span>
+            📤 Export All <span style="font-size: 0.7rem;">▼</span>
           </button>
           <div id="conversations-export-menu" class="export-menu">
-            <button class="export-menu-item" onclick="exportReport('conversations', 'pdf')">
-              <span class="icon-pdf">📄</span> Export to PDF
+            <button class="export-menu-item" onclick="exportReport('conversations', 'html')">
+              <span class="icon-pdf">📄</span> View / Print PDF
             </button>
             <button class="export-menu-item" onclick="exportReport('conversations', 'docx')">
               <span class="icon-word">📝</span> Export to Word
@@ -881,11 +881,11 @@
         <h5 style="margin: 0;">👥 User Management</h5>
         <div class="export-dropdown">
           <button class="export-btn" onclick="toggleExportMenu('users-export-menu')">
-            📥 Export <span style="font-size: 0.7rem;">▼</span>
+            📤 Export <span style="font-size: 0.7rem;">▼</span>
           </button>
           <div id="users-export-menu" class="export-menu">
-            <button class="export-menu-item" onclick="exportReport('users', 'pdf')">
-              <span class="icon-pdf">📄</span> Export to PDF
+            <button class="export-menu-item" onclick="exportReport('users', 'html')">
+              <span class="icon-pdf">📄</span> View / Print PDF
             </button>
             <button class="export-menu-item" onclick="exportReport('users', 'docx')">
               <span class="icon-word">📝</span> Export to Word
@@ -988,11 +988,11 @@
         <h5 style="margin: 0;">👨‍⚕️ Clinician Management</h5>
         <div class="export-dropdown">
           <button class="export-btn" onclick="toggleExportMenu('clinicians-export-menu')">
-            📥 Export <span style="font-size: 0.7rem;">▼</span>
+            📤 Export <span style="font-size: 0.7rem;">▼</span>
           </button>
           <div id="clinicians-export-menu" class="export-menu">
-            <button class="export-menu-item" onclick="exportReport('clinicians', 'pdf')">
-              <span class="icon-pdf">📄</span> Export to PDF
+            <button class="export-menu-item" onclick="exportReport('clinicians', 'html')">
+              <span class="icon-pdf">📄</span> View / Print PDF
             </button>
             <button class="export-menu-item" onclick="exportReport('clinicians', 'docx')">
               <span class="icon-word">📝</span> Export to Word
@@ -1025,11 +1025,11 @@
         <h5 style="margin: 0;">🧑‍🤝‍🧑 Patient Management</h5>
         <div class="export-dropdown">
           <button class="export-btn" onclick="toggleExportMenu('patients-export-menu')">
-            📥 Export <span style="font-size: 0.7rem;">▼</span>
+            📤 Export <span style="font-size: 0.7rem;">▼</span>
           </button>
           <div id="patients-export-menu" class="export-menu">
-            <button class="export-menu-item" onclick="exportReport('patients', 'pdf')">
-              <span class="icon-pdf">📄</span> Export to PDF
+            <button class="export-menu-item" onclick="exportReport('patients', 'html')">
+              <span class="icon-pdf">📄</span> View / Print PDF
             </button>
             <button class="export-menu-item" onclick="exportReport('patients', 'docx')">
               <span class="icon-word">📝</span> Export to Word
@@ -1097,11 +1097,11 @@
         <h5 style="margin: 0;">🏥 Global Symptom Distribution</h5>
         <div class="export-dropdown">
           <button class="export-btn" onclick="toggleExportMenu('analytics-export-menu')">
-            📥 Export Report <span style="font-size: 0.7rem;">▼</span>
+            📤 Export Report <span style="font-size: 0.7rem;">▼</span>
           </button>
           <div id="analytics-export-menu" class="export-menu">
-            <button class="export-menu-item" onclick="exportReport('analytics', 'pdf')">
-              <span class="icon-pdf">📄</span> Export to PDF
+            <button class="export-menu-item" onclick="exportReport('analytics', 'html')">
+              <span class="icon-pdf">📄</span> View / Print PDF
             </button>
             <button class="export-menu-item" onclick="exportReport('analytics', 'docx')">
               <span class="icon-word">📝</span> Export to Word
