@@ -39,6 +39,9 @@ argon2-cffi==25.1.0
 python-docx==1.2.0
 langdetect==1.0.9
 
+# --- Document Export (PDF/Word) ---
+reportlab==4.2.5
+
 
 ############################################
 # Testing

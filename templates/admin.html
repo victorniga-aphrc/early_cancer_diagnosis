@@ -284,6 +284,77 @@
     font-size: 0.85rem;
   }
 
+  /* Export button styles */
+  .export-dropdown {
+    position: relative;
+    display: inline-block;
+  }
+
+  .export-btn {
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .export-btn:hover {
+    background: linear-gradient(135deg, #2563eb, #1e40af);
+    transform: translateY(-1px);
+  }
+
+  .export-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    min-width: 160px;
+    z-index: 1000;
+    display: none;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+
+  .export-menu.show {
+    display: block;
+  }
+
+  .export-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    color: var(--admin-text);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.2s;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-size: 0.9rem;
+  }
+
+  .export-menu-item:hover {
+    background: var(--admin-bg);
+  }
+
+  .export-menu-item .icon-pdf {
+    color: #dc2626;
+  }
+
+  .export-menu-item .icon-word {
+    color: #2563eb;
+  }
+
   /* Status badges */
   .status-badge {
     display: inline-block;
@@ -675,7 +746,24 @@
   <!-- History Tab -->
   <div id="tab-history" class="tab-content-panel">
     <div class="data-table-card">
-      <h5>📋 My Conversation History</h5>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+        <h5 style="margin: 0;">📋 My Conversation History</h5>
+        <div id="history-export-wrapper" style="display: none;">
+          <div class="export-dropdown">
+            <button class="export-btn btn-admin-sm" onclick="toggleExportMenu('history-export-menu')">
+              📥 Export Selected <span style="font-size: 0.7rem;">▼</span>
+            </button>
+            <div id="history-export-menu" class="export-menu">
+              <button class="export-menu-item" onclick="exportSelectedConversation('history', 'pdf')">
+                <span class="icon-pdf">📄</span> Export to PDF
+              </button>
+              <button class="export-menu-item" onclick="exportSelectedConversation('history', 'docx')">
+                <span class="icon-word">📝</span> Export to Word
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
       <p style="color: var(--admin-text-light); margin-bottom: 1rem;">View and manage your own conversations</p>
 
       <div class="history-container">
@@ -717,7 +805,22 @@
   <!-- Conversations Tab -->
   <div id="tab-conversations" class="tab-content-panel">
     <div class="data-table-card">
-      <h5>💬 All Conversations</h5>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+        <h5 style="margin: 0;">💬 All Conversations</h5>
+        <div class="export-dropdown">
+          <button class="export-btn" onclick="toggleExportMenu('conversations-export-menu')">
+            📥 Export All <span style="font-size: 0.7rem;">▼</span>
+          </button>
+          <div id="conversations-export-menu" class="export-menu">
+            <button class="export-menu-item" onclick="exportReport('conversations', 'pdf')">
+              <span class="icon-pdf">📄</span> Export to PDF
+            </button>
+            <button class="export-menu-item" onclick="exportReport('conversations', 'docx')">
+              <span class="icon-word">📝</span> Export to Word
+            </button>
+          </div>
+        </div>
+      </div>
       <p style="color: var(--admin-text-light); margin-bottom: 1rem;">View and manage all user conversations</p>
 
       <!-- Filters -->
@@ -774,7 +877,22 @@
   <!-- Users Tab -->
   <div id="tab-users" class="tab-content-panel">
     <div class="data-table-card">
-      <h5>👥 User Management</h5>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h5 style="margin: 0;">👥 User Management</h5>
+        <div class="export-dropdown">
+          <button class="export-btn" onclick="toggleExportMenu('users-export-menu')">
+            📥 Export <span style="font-size: 0.7rem;">▼</span>
+          </button>
+          <div id="users-export-menu" class="export-menu">
+            <button class="export-menu-item" onclick="exportReport('users', 'pdf')">
+              <span class="icon-pdf">📄</span> Export to PDF
+            </button>
+            <button class="export-menu-item" onclick="exportReport('users', 'docx')">
+              <span class="icon-word">📝</span> Export to Word
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div style="margin-bottom: 1rem;">
         <button class="btn-admin-primary" onclick="openCreateUserModal()">+ Create New User</button>
@@ -866,7 +984,22 @@
   <!-- Clinicians Tab -->
   <div id="tab-clinicians" class="tab-content-panel">
     <div class="data-table-card">
-      <h5>👨‍⚕️ Clinician Management</h5>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h5 style="margin: 0;">👨‍⚕️ Clinician Management</h5>
+        <div class="export-dropdown">
+          <button class="export-btn" onclick="toggleExportMenu('clinicians-export-menu')">
+            📥 Export <span style="font-size: 0.7rem;">▼</span>
+          </button>
+          <div id="clinicians-export-menu" class="export-menu">
+            <button class="export-menu-item" onclick="exportReport('clinicians', 'pdf')">
+              <span class="icon-pdf">📄</span> Export to PDF
+            </button>
+            <button class="export-menu-item" onclick="exportReport('clinicians', 'docx')">
+              <span class="icon-word">📝</span> Export to Word
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div class="table-container">
         <table class="admin-table" id="tbl-clinicians">
@@ -888,7 +1021,22 @@
   <!-- Patients Tab -->
   <div id="tab-patients" class="tab-content-panel">
     <div class="data-table-card">
-      <h5>🧑‍🤝‍🧑 Patient Management</h5>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h5 style="margin: 0;">🧑‍🤝‍🧑 Patient Management</h5>
+        <div class="export-dropdown">
+          <button class="export-btn" onclick="toggleExportMenu('patients-export-menu')">
+            📥 Export <span style="font-size: 0.7rem;">▼</span>
+          </button>
+          <div id="patients-export-menu" class="export-menu">
+            <button class="export-menu-item" onclick="exportReport('patients', 'pdf')">
+              <span class="icon-pdf">📄</span> Export to PDF
+            </button>
+            <button class="export-menu-item" onclick="exportReport('patients', 'docx')">
+              <span class="icon-word">📝</span> Export to Word
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div style="margin-bottom: 1rem;">
         <button class="btn-admin-primary" onclick="openCreatePatientModal()">+ Create New Patient</button>
@@ -945,7 +1093,22 @@
   <div id="tab-analytics" class="tab-content-panel">
     <!-- Symptoms Section -->
     <div class="chart-card" style="margin-bottom: 1.5rem;">
-      <h5>🏥 Global Symptom Distribution</h5>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h5 style="margin: 0;">🏥 Global Symptom Distribution</h5>
+        <div class="export-dropdown">
+          <button class="export-btn" onclick="toggleExportMenu('analytics-export-menu')">
+            📥 Export Report <span style="font-size: 0.7rem;">▼</span>
+          </button>
+          <div id="analytics-export-menu" class="export-menu">
+            <button class="export-menu-item" onclick="exportReport('analytics', 'pdf')">
+              <span class="icon-pdf">📄</span> Export to PDF
+            </button>
+            <button class="export-menu-item" onclick="exportReport('analytics', 'docx')">
+              <span class="icon-word">📝</span> Export to Word
+            </button>
+          </div>
+        </div>
+      </div>
       <div style="height: 400px; position: relative;">
         <canvas id="chart-symptoms"></canvas>
       </div>

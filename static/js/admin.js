@@ -134,6 +134,134 @@ function closeModal(modalId) {
 
 window.closeModal = closeModal; // Make available globally for onclick handlers
 
+// ===== Export Functions =====
+function toggleExportMenu(menuId) {
+  const menu = document.getElementById(menuId);
+  if (!menu) return;
+
+  // Close all other export menus
+  document.querySelectorAll('.export-menu.show').forEach(m => {
+    if (m.id !== menuId) m.classList.remove('show');
+  });
+
+  menu.classList.toggle('show');
+}
+
+// Close export menus when clicking outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.export-dropdown')) {
+    document.querySelectorAll('.export-menu.show').forEach(m => m.classList.remove('show'));
+  }
+});
+
+function exportReport(reportType, format) {
+  // Close the menu
+  document.querySelectorAll('.export-menu.show').forEach(m => m.classList.remove('show'));
+
+  showLoading();
+
+  const url = `/admin/api/export/${reportType}/${format}`;
+
+  fetch(url, { credentials: 'same-origin' })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status}`);
+      }
+      return response.blob();
+    })
+    .then(blob => {
+      hideLoading();
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+
+      // Generate filename
+      const extension = format === 'pdf' ? 'pdf' : 'docx';
+      const timestamp = new Date().toISOString().slice(0, 10);
+      a.download = `${reportType}_report_${timestamp}.${extension}`;
+
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      showAlert(`${reportType.charAt(0).toUpperCase() + reportType.slice(1)} report exported successfully!`, 'success');
+    })
+    .catch(err => {
+      hideLoading();
+      showAlert(`Export failed: ${err.message}`);
+    });
+}
+
+function exportConversation(convId, format) {
+  if (!convId) {
+    showAlert('No conversation selected');
+    return;
+  }
+
+  // Close the menu
+  document.querySelectorAll('.export-menu.show').forEach(m => m.classList.remove('show'));
+
+  showLoading();
+
+  const url = `/admin/api/export/conversation/${encodeURIComponent(convId)}/${format}`;
+
+  fetch(url, { credentials: 'same-origin' })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status}`);
+      }
+      return response.blob();
+    })
+    .then(blob => {
+      hideLoading();
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+
+      const extension = format === 'pdf' ? 'pdf' : 'docx';
+      const shortId = String(convId).slice(0, 8);
+      a.download = `conversation_${shortId}.${extension}`;
+
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      showAlert('Conversation exported successfully!', 'success');
+    })
+    .catch(err => {
+      hideLoading();
+      showAlert(`Export failed: ${err.message}`);
+    });
+}
+
+function exportSelectedConversation(source, format) {
+  let convId = null;
+
+  if (source === 'history') {
+    convId = historyState.selectedConvId;
+  } else if (source === 'conversations') {
+    convId = conversationState.selectedConvId;
+  }
+
+  if (!convId) {
+    showAlert('Please select a conversation first');
+    return;
+  }
+
+  exportConversation(convId, format);
+}
+
+window.toggleExportMenu = toggleExportMenu;
+window.exportReport = exportReport;
+window.exportConversation = exportConversation;
+window.exportSelectedConversation = exportSelectedConversation;
+window.filterConversationsByPatient = filterConversationsByPatient;
+
 // ===== KPI Rendering =====
 function renderKPIs(summary) {
   const { users, conversations, messages } = summary;
@@ -547,7 +675,22 @@ function renderConversationDetail(convId, data) {
       <h4 style="margin: 0; color: var(--admin-primary); display: flex; align-items: center; gap: 0.5rem;">
         💬 Conversation Details
       </h4>
-      <button id="convos-delete-current" class="btn-admin-danger btn-admin-sm">🗑️ Delete</button>
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <div class="export-dropdown">
+          <button class="export-btn btn-admin-sm" onclick="toggleExportMenu('conv-detail-export-menu')">
+            📥 Export <span style="font-size: 0.7rem;">▼</span>
+          </button>
+          <div id="conv-detail-export-menu" class="export-menu">
+            <button class="export-menu-item" onclick="exportConversation('${convId}', 'pdf')">
+              <span class="icon-pdf">📄</span> Export to PDF
+            </button>
+            <button class="export-menu-item" onclick="exportConversation('${convId}', 'docx')">
+              <span class="icon-word">📝</span> Export to Word
+            </button>
+          </div>
+        </div>
+        <button id="convos-delete-current" class="btn-admin-danger btn-admin-sm">🗑️ Delete</button>
+      </div>
     </div>
 
     <div style="background: white; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 1.5rem;">
@@ -1576,7 +1719,20 @@ function renderHistoryDetail(convId, data) {
       <h4 style="margin: 0; color: var(--admin-primary); display: flex; align-items: center; gap: 0.5rem;">
         💬 Conversation Details
       </h4>
-      <div style="display: flex; gap: 0.5rem;">
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <div class="export-dropdown">
+          <button class="export-btn btn-admin-sm" onclick="toggleExportMenu('history-detail-export-menu')">
+            📥 Export <span style="font-size: 0.7rem;">▼</span>
+          </button>
+          <div id="history-detail-export-menu" class="export-menu">
+            <button class="export-menu-item" onclick="exportConversation('${convId}', 'pdf')">
+              <span class="icon-pdf">📄</span> Export to PDF
+            </button>
+            <button class="export-menu-item" onclick="exportConversation('${convId}', 'docx')">
+              <span class="icon-word">📝</span> Export to Word
+            </button>
+          </div>
+        </div>
         <button id="history-delete-current" class="btn-admin-danger btn-admin-sm">🗑️ Delete</button>
         <a href="${newConvUrl}" class="btn-admin-primary btn-admin-sm" style="text-decoration: none;">+ New Conversation</a>
       </div>

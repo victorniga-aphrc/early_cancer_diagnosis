@@ -1,10 +1,11 @@
 # admin.py
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, Response
 from flask_login import login_required, current_user
 from sqlalchemy import func, desc, or_
 from collections import Counter, defaultdict
 import re
 import json
+import io
 from datetime import datetime
 
 from models import (
@@ -841,5 +842,594 @@ def conversation_disease_likelihoods(cid):
             "source": "computed",
             "faiss_matches": faiss_matches,
         })
+    finally:
+        db.close()
+
+
+# --------------------------
+# Export Utilities
+# --------------------------
+def _generate_pdf_report(title: str, headers: list, rows: list, subtitle: str = None) -> bytes:
+    """Generate a PDF report with table data."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), topMargin=0.5*inch, bottomMargin=0.5*inch)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Title
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, spaceAfter=12, textColor=colors.HexColor('#7bc148'))
+    elements.append(Paragraph(title, title_style))
+
+    if subtitle:
+        subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, textColor=colors.gray, spaceAfter=20)
+        elements.append(Paragraph(subtitle, subtitle_style))
+
+    elements.append(Spacer(1, 12))
+
+    # Table data
+    table_data = [headers] + rows
+
+    # Calculate column widths
+    num_cols = len(headers)
+    available_width = 10 * inch
+    col_width = available_width / num_cols
+
+    table = Table(table_data, colWidths=[col_width] * num_cols)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#7bc148')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('TOPPADDING', (0, 1), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
+    ]))
+
+    elements.append(table)
+
+    # Footer
+    elements.append(Spacer(1, 20))
+    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.gray)
+    elements.append(Paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Early Cancer Diagnosis System", footer_style))
+
+    doc.build(elements)
+    return buffer.getvalue()
+
+
+def _generate_word_report(title: str, headers: list, rows: list, subtitle: str = None) -> bytes:
+    """Generate a Word document with table data."""
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc = Document()
+
+    # Title
+    title_para = doc.add_heading(title, level=1)
+    title_para.runs[0].font.color.rgb = RGBColor(123, 193, 72)
+
+    if subtitle:
+        subtitle_para = doc.add_paragraph(subtitle)
+        subtitle_para.runs[0].font.size = Pt(10)
+        subtitle_para.runs[0].font.color.rgb = RGBColor(107, 114, 128)
+
+    doc.add_paragraph()
+
+    # Table
+    table = doc.add_table(rows=len(rows) + 1, cols=len(headers))
+    table.style = 'Table Grid'
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    # Header row
+    header_row = table.rows[0]
+    for i, header in enumerate(headers):
+        cell = header_row.cells[i]
+        cell.text = str(header)
+        cell.paragraphs[0].runs[0].font.bold = True
+        cell.paragraphs[0].runs[0].font.size = Pt(10)
+
+    # Data rows
+    for row_idx, row_data in enumerate(rows):
+        row = table.rows[row_idx + 1]
+        for col_idx, value in enumerate(row_data):
+            row.cells[col_idx].text = str(value) if value else "—"
+            row.cells[col_idx].paragraphs[0].runs[0].font.size = Pt(9)
+
+    # Footer
+    doc.add_paragraph()
+    footer = doc.add_paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Early Cancer Diagnosis System")
+    footer.runs[0].font.size = Pt(8)
+    footer.runs[0].font.color.rgb = RGBColor(107, 114, 128)
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def _generate_conversation_pdf(conv_data: dict, messages: list, patient_label: str, clinician_label: str) -> bytes:
+    """Generate a PDF for conversation/chat history."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.75*inch, bottomMargin=0.75*inch)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Title
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, spaceAfter=6, textColor=colors.HexColor('#7bc148'))
+    elements.append(Paragraph("Conversation Transcript", title_style))
+
+    # Metadata
+    meta_style = ParagraphStyle('Meta', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#6b7280'), spaceAfter=4)
+    created = conv_data.get('created_at', '')
+    if created:
+        try:
+            created = datetime.fromisoformat(created.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            pass
+
+    elements.append(Paragraph(f"<b>Patient:</b> {patient_label}", meta_style))
+    elements.append(Paragraph(f"<b>Clinician:</b> {clinician_label}", meta_style))
+    elements.append(Paragraph(f"<b>Date:</b> {created}", meta_style))
+    elements.append(Paragraph(f"<b>Messages:</b> {len(messages)}", meta_style))
+    elements.append(Spacer(1, 16))
+
+    # Messages
+    role_colors = {
+        'patient': '#1e40af',
+        'clinician': '#166534',
+        'Question Recommender': '#92400e',
+        'Listener': '#166534',
+    }
+
+    for msg in messages:
+        role = msg.get('role', 'Unknown')
+        text = msg.get('text') or msg.get('message') or ''
+        timestamp = msg.get('timestamp', '')
+        color = role_colors.get(role, '#4b5563')
+
+        role_style = ParagraphStyle('Role', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor(color), fontName='Helvetica-Bold')
+        msg_style = ParagraphStyle('Message', parent=styles['Normal'], fontSize=10, spaceAfter=12, leading=14)
+
+        elements.append(Paragraph(f"{role} [{timestamp}]", role_style))
+        # Clean text for PDF
+        clean_text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        elements.append(Paragraph(clean_text, msg_style))
+
+    # Footer
+    elements.append(Spacer(1, 20))
+    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.gray)
+    elements.append(Paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Early Cancer Diagnosis System", footer_style))
+
+    doc.build(elements)
+    return buffer.getvalue()
+
+
+def _generate_conversation_word(conv_data: dict, messages: list, patient_label: str, clinician_label: str) -> bytes:
+    """Generate a Word document for conversation/chat history."""
+    from docx import Document
+    from docx.shared import Pt, RGBColor, Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc = Document()
+
+    # Title
+    title = doc.add_heading("Conversation Transcript", level=1)
+    title.runs[0].font.color.rgb = RGBColor(123, 193, 72)
+
+    # Metadata
+    created = conv_data.get('created_at', '')
+    if created:
+        try:
+            created = datetime.fromisoformat(created.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            pass
+
+    meta = doc.add_paragraph()
+    meta.add_run(f"Patient: ").bold = True
+    meta.add_run(f"{patient_label}\n")
+    meta.add_run(f"Clinician: ").bold = True
+    meta.add_run(f"{clinician_label}\n")
+    meta.add_run(f"Date: ").bold = True
+    meta.add_run(f"{created}\n")
+    meta.add_run(f"Messages: ").bold = True
+    meta.add_run(f"{len(messages)}")
+
+    doc.add_paragraph()
+    doc.add_heading("Messages", level=2)
+
+    role_colors = {
+        'patient': RGBColor(30, 64, 175),
+        'clinician': RGBColor(22, 101, 52),
+        'Question Recommender': RGBColor(146, 64, 14),
+        'Listener': RGBColor(22, 101, 52),
+    }
+
+    for msg in messages:
+        role = msg.get('role', 'Unknown')
+        text = msg.get('text') or msg.get('message') or ''
+        timestamp = msg.get('timestamp', '')
+        color = role_colors.get(role, RGBColor(75, 85, 99))
+
+        para = doc.add_paragraph()
+        role_run = para.add_run(f"{role} [{timestamp}]")
+        role_run.bold = True
+        role_run.font.size = Pt(10)
+        role_run.font.color.rgb = color
+
+        msg_para = doc.add_paragraph(text)
+        msg_para.runs[0].font.size = Pt(10)
+
+        doc.add_paragraph()
+
+    # Footer
+    footer = doc.add_paragraph(f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Early Cancer Diagnosis System")
+    footer.runs[0].font.size = Pt(8)
+    footer.runs[0].font.color.rgb = RGBColor(107, 114, 128)
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+# --------------------------
+# Export: Users List
+# --------------------------
+@admin_bp.get("/api/export/users/<format>")
+@login_required
+def export_users(format: str):
+    """Export users list to PDF or Word."""
+    if not _require_admin():
+        return admin_guard()
+
+    if format not in ('pdf', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+
+    db = SessionLocal()
+    try:
+        users = db.query(User).order_by(User.id.desc()).all()
+
+        headers = ['ID', 'Email', 'Username', 'Roles', 'Created']
+        rows = []
+        for u in users:
+            roles = ', '.join(r.name for r in u.roles) if u.roles else '—'
+            created = u.created_at.strftime('%Y-%m-%d %H:%M') if hasattr(u, 'created_at') and u.created_at else '—'
+            rows.append([str(u.id), u.email or '—', u.username or '—', roles, created])
+
+        title = "Users Report"
+        subtitle = f"Total: {len(users)} users"
+
+        if format == 'pdf':
+            content = _generate_pdf_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/pdf',
+                          headers={'Content-Disposition': 'attachment; filename=users_report.pdf'})
+        else:
+            content = _generate_word_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                          headers={'Content-Disposition': 'attachment; filename=users_report.docx'})
+    finally:
+        db.close()
+
+
+# --------------------------
+# Export: Clinicians List
+# --------------------------
+@admin_bp.get("/api/export/clinicians/<format>")
+@login_required
+def export_clinicians(format: str):
+    """Export clinicians list to PDF or Word."""
+    if not _require_admin():
+        return admin_guard()
+
+    if format not in ('pdf', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+
+    db = SessionLocal()
+    try:
+        rows_data = (
+            db.query(User, func.count(Conversation.id).label("convos"))
+              .join(user_roles, user_roles.c.user_id == User.id)
+              .join(Role, Role.id == user_roles.c.role_id)
+              .filter(Role.name == "clinician")
+              .outerjoin(Conversation, Conversation.owner_user_id == User.id)
+              .group_by(User.id, User.email, User.username)
+              .order_by(desc("convos"))
+              .all()
+        )
+
+        headers = ['ID', 'Display Name', 'Email', 'Conversations']
+        rows = []
+        for u, convos in rows_data:
+            display_name = _user_display_name(u)
+            rows.append([str(u.id), display_name, u.email or '—', str(convos)])
+
+        title = "Clinicians Report"
+        subtitle = f"Total: {len(rows_data)} clinicians"
+
+        if format == 'pdf':
+            content = _generate_pdf_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/pdf',
+                          headers={'Content-Disposition': 'attachment; filename=clinicians_report.pdf'})
+        else:
+            content = _generate_word_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                          headers={'Content-Disposition': 'attachment; filename=clinicians_report.docx'})
+    finally:
+        db.close()
+
+
+# --------------------------
+# Export: Patients List
+# --------------------------
+@admin_bp.get("/api/export/patients/<format>")
+@login_required
+def export_patients(format: str):
+    """Export patients list to PDF or Word."""
+    if not _require_admin():
+        return admin_guard()
+
+    if format not in ('pdf', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+
+    db = SessionLocal()
+    try:
+        patients_data = (
+            db.query(Patient, User.email, User.username)
+            .outerjoin(User, User.id == Patient.clinician_id)
+            .order_by(Patient.id.desc())
+            .all()
+        )
+
+        headers = ['Identifier', 'Display Name', 'Assigned Clinician', 'Created']
+        rows = []
+        for p, email, username in patients_data:
+            clin_name = (username or "").strip() or ((email.split("@")[0] if email else "—") if email else "—")
+            created = p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '—'
+            rows.append([p.identifier or '—', p.display_name or '—', clin_name, created])
+
+        title = "Patients Report"
+        subtitle = f"Total: {len(patients_data)} patients"
+
+        if format == 'pdf':
+            content = _generate_pdf_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/pdf',
+                          headers={'Content-Disposition': 'attachment; filename=patients_report.pdf'})
+        else:
+            content = _generate_word_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                          headers={'Content-Disposition': 'attachment; filename=patients_report.docx'})
+    finally:
+        db.close()
+
+
+# --------------------------
+# Export: Conversations List
+# --------------------------
+@admin_bp.get("/api/export/conversations/<format>")
+@login_required
+def export_conversations(format: str):
+    """Export all conversations list to PDF or Word."""
+    if not _require_admin():
+        return admin_guard()
+
+    if format not in ('pdf', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+
+    db = SessionLocal()
+    try:
+        rows_data = (
+            db.query(
+                Conversation.id,
+                Conversation.created_at,
+                User.email,
+                User.username,
+                Conversation.patient_id,
+                func.count(Message.id).label("message_count"),
+            )
+            .outerjoin(User, User.id == Conversation.owner_user_id)
+            .outerjoin(Message, Message.conversation_id == Conversation.id)
+            .group_by(Conversation.id, Conversation.created_at, User.email, User.username, Conversation.patient_id)
+            .order_by(Conversation.created_at.desc())
+            .all()
+        )
+
+        # Get patient info
+        patient_ids = {pid for (_, _, _, _, pid, _) in rows_data if pid}
+        patient_meta = {}
+        if patient_ids:
+            p_rows = db.query(Patient.id, Patient.identifier, Patient.display_name).filter(Patient.id.in_(patient_ids)).all()
+            for pid, ident, disp in p_rows:
+                label = (ident or "").strip() or (disp or "").strip() or "Patient"
+                patient_meta[int(pid)] = label
+
+        headers = ['ID', 'Clinician', 'Patient', 'Messages', 'Created']
+        rows = []
+        for (cid, created, email, username, patient_id, msg_count) in rows_data:
+            clinician = (username or "").strip() or ((email.split("@")[0] if email else "—") if email else "—")
+            patient = patient_meta.get(int(patient_id), "—") if patient_id else "—"
+            created_str = created.strftime('%Y-%m-%d %H:%M') if created else '—'
+            # Truncate conversation ID for readability
+            short_id = str(cid)[:8] + "..." if len(str(cid)) > 8 else str(cid)
+            rows.append([short_id, clinician, patient, str(msg_count), created_str])
+
+        title = "Conversations Report"
+        subtitle = f"Total: {len(rows_data)} conversations"
+
+        if format == 'pdf':
+            content = _generate_pdf_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/pdf',
+                          headers={'Content-Disposition': 'attachment; filename=conversations_report.pdf'})
+        else:
+            content = _generate_word_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                          headers={'Content-Disposition': 'attachment; filename=conversations_report.docx'})
+    finally:
+        db.close()
+
+
+# --------------------------
+# Export: Single Conversation Detail (Chat History)
+# --------------------------
+@admin_bp.get("/api/export/conversation/<cid>/<format>")
+@login_required
+def export_conversation_detail(cid: str, format: str):
+    """Export a single conversation (chat history) to PDF or Word."""
+    if not _require_admin():
+        return admin_guard()
+
+    if format not in ('pdf', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+
+    db = SessionLocal()
+    try:
+        # Get conversation with owner and patient
+        conv = (
+            db.query(Conversation, User.email, User.username, Patient.identifier, Patient.display_name)
+            .outerjoin(User, User.id == Conversation.owner_user_id)
+            .outerjoin(Patient, Patient.id == Conversation.patient_id)
+            .filter(Conversation.id == cid)
+            .first()
+        )
+
+        if not conv:
+            return jsonify({"ok": False, "error": "Conversation not found"}), 404
+
+        conversation, uemail, uname, pident, pdisplay = conv
+        clinician_label = _user_display_name(User(email=uemail, username=uname)) if (uemail or uname) else "—"
+
+        p_id = (pident or "").strip()
+        p_disp = (pdisplay or "").strip()
+        if p_id and p_disp:
+            patient_label = f"{p_id} ({p_disp})"
+        elif p_id:
+            patient_label = p_id
+        elif p_disp:
+            patient_label = p_disp
+        else:
+            patient_label = "—"
+
+        # Get messages
+        msgs = (
+            db.query(Message)
+              .filter(Message.conversation_id == cid)
+              .order_by(Message.created_at.asc())
+              .all()
+        )
+
+        messages = []
+        for m in msgs:
+            messages.append({
+                "role": m.role,
+                "text": _safe_text(m),
+                "timestamp": m.timestamp or "",
+            })
+
+        conv_data = {
+            "id": cid,
+            "created_at": conversation.created_at.isoformat() if conversation.created_at else "",
+        }
+
+        if format == 'pdf':
+            content = _generate_conversation_pdf(conv_data, messages, patient_label, clinician_label)
+            filename = f"conversation_{cid[:8]}.pdf"
+            return Response(content, mimetype='application/pdf',
+                          headers={'Content-Disposition': f'attachment; filename={filename}'})
+        else:
+            content = _generate_conversation_word(conv_data, messages, patient_label, clinician_label)
+            filename = f"conversation_{cid[:8]}.docx"
+            return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                          headers={'Content-Disposition': f'attachment; filename={filename}'})
+    finally:
+        db.close()
+
+
+# --------------------------
+# Export: Analytics/Symptoms Report
+# --------------------------
+@admin_bp.get("/api/export/analytics/<format>")
+@login_required
+def export_analytics(format: str):
+    """Export symptoms analytics to PDF or Word."""
+    if not _require_admin():
+        return admin_guard()
+
+    if format not in ('pdf', 'docx'):
+        return jsonify({"ok": False, "error": "Invalid format. Use 'pdf' or 'docx'"}), 400
+
+    db = SessionLocal()
+    try:
+        # Get conversations with symptoms
+        convo_rows = (
+            db.query(
+                Conversation.id,
+                Conversation.created_at,
+                User.email,
+                User.username,
+                Patient.identifier,
+                Patient.display_name,
+            )
+            .outerjoin(User, User.id == Conversation.owner_user_id)
+            .outerjoin(Patient, Patient.id == Conversation.patient_id)
+            .order_by(Conversation.created_at.desc())
+            .all()
+        )
+
+        conv_ids = [r[0] for r in convo_rows]
+
+        # Get patient messages
+        msgs = []
+        if conv_ids:
+            msgs = (
+                db.query(Message)
+                  .filter(Message.conversation_id.in_(conv_ids))
+                  .filter(or_(Message.role == "patient", Message.role == "Patient"))
+                  .all()
+            )
+
+        # Extract symptoms per conversation
+        per_conv = defaultdict(Counter)
+        for m in msgs:
+            counts = extract_symptoms(m.message or "")
+            per_conv[m.conversation_id].update(counts)
+
+        headers = ['Patient', 'Clinician', 'Top Symptoms', 'Created']
+        rows = []
+        for (cid, created, email, username, p_ident, p_display) in convo_rows:
+            clinician = (username or "").strip() or ((email.split("@")[0] if email else "—") if email else "—")
+            patient = (p_ident or "").strip() or (p_display or "").strip() or "—"
+            symptoms = per_conv.get(cid, Counter())
+            top_symptoms = ', '.join(f"{s} ({c})" for s, c in symptoms.most_common(3)) or "None"
+            created_str = created.strftime('%Y-%m-%d') if created else '—'
+            rows.append([patient, clinician, top_symptoms, created_str])
+
+        title = "Symptoms Analytics Report"
+        subtitle = f"Analysis of {len(convo_rows)} conversations"
+
+        if format == 'pdf':
+            content = _generate_pdf_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/pdf',
+                          headers={'Content-Disposition': 'attachment; filename=analytics_report.pdf'})
+        else:
+            content = _generate_word_report(title, headers, rows, subtitle)
+            return Response(content, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                          headers={'Content-Disposition': 'attachment; filename=analytics_report.docx'})
     finally:
         db.close()
