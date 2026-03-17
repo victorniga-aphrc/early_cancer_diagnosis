@@ -23,7 +23,8 @@
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -135,14 +136,14 @@ mark {
   height: 100%;
   overflow-y: auto;
   background: white;
-  border: 1px solid var(--gray-200);
+  border: 2px solid #7bc148;
 }
 
 .panel-left {
   flex-shrink: 0;
   border-radius: 16px 0 0 16px;
   border-right: none;
-  background: var(--gray-50);
+  background: #7bc14817;
 }
 
 .panel-center {
@@ -719,7 +720,9 @@ mark {
 }
 
 @keyframes ping {
-  75%, 100% {
+
+  75%,
+  100% {
     transform: scale(2);
     opacity: 0;
   }
@@ -769,7 +772,8 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  user-select: text; /* allow copy/paste of transcript text */
+  user-select: text;
+  /* allow copy/paste of transcript text */
 }
 
 .transcript-messages .message-text {
@@ -1052,13 +1056,29 @@ mark {
   animation: bounce 1.4s infinite ease-in-out;
 }
 
-.typing-dots .dot:nth-child(1) { animation-delay: 0ms; }
-.typing-dots .dot:nth-child(2) { animation-delay: 150ms; }
-.typing-dots .dot:nth-child(3) { animation-delay: 300ms; }
+.typing-dots .dot:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.typing-dots .dot:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.typing-dots .dot:nth-child(3) {
+  animation-delay: 300ms;
+}
 
 @keyframes bounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-6px); }
+
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+
+  40% {
+    transform: translateY(-6px);
+  }
 }
 
 /* Suggested Questions Box */
@@ -1302,7 +1322,7 @@ mark {
   z-index: 1000;
   background: white;
   border-bottom: 1px solid var(--gray-100);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .top-menu .menu-left {
@@ -1396,7 +1416,7 @@ mark {
   background: white;
   border: 1px solid var(--gray-200);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   min-width: 150px;
   z-index: 1001;
 }
@@ -1459,7 +1479,7 @@ mark {
   z-index: 1000;
   background: white;
   border-bottom: 1px solid var(--gray-100);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .top-menu-bar .menu-brand {
@@ -1582,7 +1602,7 @@ mark {
 }
 
 /* Space sections */
-.space-y > * + * {
+.space-y>*+* {
   margin-top: 0.75rem;
 }
 
