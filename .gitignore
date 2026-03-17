@@ -32,10 +32,10 @@ CHANGELOG.md
 ############################
 app.db
 *.db
-#*.sqlite
-#*.sqlite3
-#medical_cases.index
-#medical_cases_metadata.pkl
+*.sqlite
+*.sqlite3
+medical_cases.index
+medical_cases_metadata.pkl
 
 ############################
 # OS / Misc
