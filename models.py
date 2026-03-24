@@ -21,6 +21,9 @@ class Conversation(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     owner_user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     patient_id = Column(Integer, ForeignKey("patients.id"), index=True, nullable=True)
+    status = Column(String(16), default="active", nullable=False)  # active|paused|ended
+    paused_at = Column(DateTime, nullable=True)
+    resumed_at = Column(DateTime, nullable=True)
     messages = relationship(
         "Message",
         back_populates="conversation",
@@ -149,11 +152,30 @@ def _migrate_add_conversation_disease_likelihoods():
     if "conversation_disease_likelihoods" not in insp.get_table_names():
         Base.metadata.tables["conversation_disease_likelihoods"].create(engine, checkfirst=True)
 
+
+def _migrate_add_conversation_status():
+    """Ensure conversations.status/paused_at/resumed_at exist for existing DBs."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "conversations" not in insp.get_table_names():
+        return
+    cols = [c["name"] for c in insp.get_columns("conversations")]
+    with engine.connect() as conn:
+        if "status" not in cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN status VARCHAR(16) DEFAULT 'active'"))
+            conn.execute(text("UPDATE conversations SET status = 'active' WHERE status IS NULL OR status = ''"))
+        if "paused_at" not in cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN paused_at DATETIME"))
+        if "resumed_at" not in cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN resumed_at DATETIME"))
+        conn.commit()
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     _migrate_add_patient_fk()
     _migrate_add_user_username()
     _migrate_add_conversation_disease_likelihoods()
+    _migrate_add_conversation_status()
     _seed_roles()
 
 def _seed_roles():
@@ -247,6 +269,49 @@ def update_conversation_patient(conversation_id: str, user_id: int, patient_id: 
                 Conversation.owner_user_id == user_id,
             )
             .update({Conversation.patient_id: patient_id}, synchronize_session=False)
+        )
+        db.commit()
+        return n > 0
+    finally:
+        db.close()
+
+
+def get_conversation_status_if_owned(conversation_id: str, user_id: int) -> str | None:
+    """Return status for an owned conversation, else None."""
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(Conversation.status)
+            .filter(
+                Conversation.id == conversation_id,
+                Conversation.owner_user_id == user_id,
+            )
+            .first()
+        )
+        return row[0] if row else None
+    finally:
+        db.close()
+
+
+def set_conversation_status_if_owned(conversation_id: str, user_id: int, status: str) -> bool:
+    """Update status for an owned conversation. Returns True if updated."""
+    status = (status or "").strip().lower()
+    if status not in {"active", "paused", "ended"}:
+        return False
+    db = SessionLocal()
+    try:
+        values = {Conversation.status: status}
+        if status == "paused":
+            values[Conversation.paused_at] = datetime.utcnow()
+        elif status == "active":
+            values[Conversation.resumed_at] = datetime.utcnow()
+        n = (
+            db.query(Conversation)
+            .filter(
+                Conversation.id == conversation_id,
+                Conversation.owner_user_id == user_id,
+            )
+            .update(values, synchronize_session=False)
         )
         db.commit()
         return n > 0

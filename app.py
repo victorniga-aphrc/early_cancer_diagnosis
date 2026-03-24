@@ -39,6 +39,8 @@ from models import (
     create_patient,
     get_patient,
     get_next_global_patient_identifier,
+    get_conversation_status_if_owned,
+    set_conversation_status_if_owned,
 )
 from flask_sock import Sock
 
@@ -218,6 +220,9 @@ def agent_chat_stream():
 
     # Ensure conversation id
     sid = _ensure_conversation_id()
+    status = get_conversation_status_if_owned(sid, current_user.id)
+    if status == "paused":
+        return jsonify({"error": "Conversation is paused. Resume to continue."}), 409
 
     # Append turn to transcript (client session)
     conv = session.get("conv", [])
@@ -626,7 +631,7 @@ def reset_conv():
         session["patient_id"] = patient_id
     else:
         session.pop("patient_id", None)
-    return jsonify({"ok": True, "conversation_id": cid})
+    return jsonify({"ok": True, "conversation_id": cid, "status": "active"})
 
 
 # -----------------------------------------------------------------------------
@@ -698,6 +703,7 @@ def api_my_conversations():
         out.append({
             "id": c.id,
             "created_at": c.created_at.isoformat() if c.created_at else None,
+            "status": (c.status or "active"),
             "patient_id": pid,
             "patient_label": patient_label,
             "message_count": len(msgs),
@@ -734,6 +740,7 @@ def api_conversation_messages(conversation_id):
         "ok": True,
         "conversation_id": conversation_id,
         "created_at": c.created_at.isoformat() if c.created_at else None,
+        "status": (c.status or "active"),
         "patient_id": pid,
         "patient_label": patient_label,
         "messages": out,
@@ -749,6 +756,49 @@ def api_delete_conversation(conversation_id):
     if not deleted:
         return jsonify({"ok": False, "error": "Not found or access denied"}), 404
     return jsonify({"ok": True})
+
+
+@app.route("/api/current-conversation", methods=["GET"])
+@login_required
+def api_current_conversation():
+    """Return active session conversation id/status if owned by current user."""
+    cid = session.get("id")
+    if not cid:
+        return jsonify({"ok": True, "conversation_id": None, "status": None})
+    status = get_conversation_status_if_owned(cid, current_user.id)
+    if status is None:
+        return jsonify({"ok": True, "conversation_id": None, "status": None})
+    return jsonify({"ok": True, "conversation_id": cid, "status": status})
+
+
+@app.route("/api/conversations/<conversation_id>/pause", methods=["POST"])
+@login_required
+def api_pause_conversation(conversation_id):
+    """Pause an owned conversation."""
+    current = get_conversation_status_if_owned(conversation_id, current_user.id)
+    if current is None:
+        return jsonify({"ok": False, "error": "Not found or access denied"}), 404
+    if current == "paused":
+        return jsonify({"ok": True, "status": "paused"})
+    ok = set_conversation_status_if_owned(conversation_id, current_user.id, "paused")
+    if not ok:
+        return jsonify({"ok": False, "error": "Failed to pause conversation"}), 500
+    return jsonify({"ok": True, "status": "paused"})
+
+
+@app.route("/api/conversations/<conversation_id>/resume", methods=["POST"])
+@login_required
+def api_resume_conversation(conversation_id):
+    """Resume an owned conversation."""
+    current = get_conversation_status_if_owned(conversation_id, current_user.id)
+    if current is None:
+        return jsonify({"ok": False, "error": "Not found or access denied"}), 404
+    if current == "active":
+        return jsonify({"ok": True, "status": "active"})
+    ok = set_conversation_status_if_owned(conversation_id, current_user.id, "active")
+    if not ok:
+        return jsonify({"ok": False, "error": "Failed to resume conversation"}), 500
+    return jsonify({"ok": True, "status": "active"})
 
 
 # -----------------------------------------------------------------------------
