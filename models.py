@@ -7,10 +7,31 @@ from sqlalchemy.orm import sessionmaker, declarative_base, relationship, scoped_
 import uuid as _uuid
 
 # --- Config ---
-DB_URL = os.getenv("DATABASE_URL", "sqlite:///app.db")
+def _normalized_db_url() -> str:
+    """
+    Normalize DB URL so SQLAlchemy 2.x can use either SQLite or Postgres.
+
+    Supported examples:
+    - sqlite:///app.db
+    - postgresql+psycopg://user:pass@host:5432/dbname
+    - postgres://user:pass@host:5432/dbname  (auto-normalized)
+    """
+    raw = (os.getenv("DATABASE_URL") or "").strip()
+    if not raw:
+        return "sqlite:///app.db"
+    # Common shorthand in some environments
+    if raw.startswith("postgres://"):
+        return "postgresql+psycopg://" + raw[len("postgres://"):]
+    # Keep explicit SQLAlchemy postgres drivers as-is
+    if raw.startswith("postgresql://"):
+        return raw
+    return raw
+
+
+DB_URL = _normalized_db_url()
 
 # --- SQLAlchemy setup ---
-engine = create_engine(DB_URL, echo=False, future=True)
+engine = create_engine(DB_URL, echo=False, future=True, pool_pre_ping=True)
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
@@ -165,9 +186,9 @@ def _migrate_add_conversation_status():
             conn.execute(text("ALTER TABLE conversations ADD COLUMN status VARCHAR(16) DEFAULT 'active'"))
             conn.execute(text("UPDATE conversations SET status = 'active' WHERE status IS NULL OR status = ''"))
         if "paused_at" not in cols:
-            conn.execute(text("ALTER TABLE conversations ADD COLUMN paused_at DATETIME"))
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN paused_at TIMESTAMP"))
         if "resumed_at" not in cols:
-            conn.execute(text("ALTER TABLE conversations ADD COLUMN resumed_at DATETIME"))
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN resumed_at TIMESTAMP"))
         conn.commit()
 
 def init_db():
@@ -177,6 +198,7 @@ def init_db():
     _migrate_add_conversation_disease_likelihoods()
     _migrate_add_conversation_status()
     _seed_roles()
+    _ensure_bootstrap_admin()
 
 def _seed_roles():
     db = SessionLocal()
@@ -185,6 +207,40 @@ def _seed_roles():
         for name in ("clinician", "admin"):
             if name not in existing:
                 db.add(Role(name=name))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _ensure_bootstrap_admin():
+    """
+    If BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD are set, create that user
+    with admin + clinician roles when no row exists for that email.
+
+    Use for a fresh PostgreSQL (or empty) database; remove secrets from env after first login.
+    """
+    email = (os.getenv("BOOTSTRAP_ADMIN_EMAIL") or "").strip().lower()
+    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD") or ""
+    if not email or not password:
+        return
+    db = SessionLocal()
+    try:
+        if db.query(User).filter_by(email=email).first():
+            return
+        from security import hash_password
+
+        u = User(
+            email=email,
+            username=None,
+            password_hash=hash_password(password),
+            email_verified=False,
+        )
+        db.add(u)
+        db.commit()
+        for role_name in ("admin", "clinician"):
+            role = db.query(Role).filter_by(name=role_name).first()
+            if role and not any(r.id == role.id for r in u.roles):
+                db.execute(user_roles.insert().values(user_id=u.id, role_id=role.id))
         db.commit()
     finally:
         db.close()

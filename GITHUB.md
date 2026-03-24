@@ -81,6 +81,19 @@ Workflow: `.github/workflows/python-app.yml`
 
 - **Triggers**: Push or PR to `main`
 - **Steps**: Checkout → Python 3.10 → Install deps → Flake8 lint → Pytest
+- **Database**: `DATABASE_URL` is not set in CI; tests use the default **SQLite** database file in the workspace unless you change the workflow.
+
+---
+
+## Project documentation (reference)
+
+| Topic | Location |
+|--------|-----------|
+| Setup, `.env`, SQLite vs PostgreSQL, data migration | `README.md` |
+| Environment template (safe to commit) | `.env.example` |
+| SQLite → Postgres migration script | `scripts/migrate_from_sqlite.py` |
+| Run helper (venv + app) | `run.sh` |
+| Change history | `CHANGELOG.md` |
 
 ---
 

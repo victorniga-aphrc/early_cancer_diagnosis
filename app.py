@@ -10,6 +10,10 @@ from urllib.parse import unquote
 from threading import RLock
 
 from dotenv import load_dotenv
+
+# Load .env before any module reads DATABASE_URL (e.g. models.py at import time).
+load_dotenv()
+
 from agent_loader import load_llm
 from flask_login import current_user, login_required
 from flask_wtf import CSRFProtect
@@ -50,8 +54,6 @@ from admin import admin_bp, delete_conversation as admin_delete_conversation, ad
 
 # ✅ Gemini STT blueprint + WS routes
 from stt_gemini import stt_bp, register_ws_routes
-
-load_dotenv()
 
 # -----------------------------------------------------------------------------
 # App setup
