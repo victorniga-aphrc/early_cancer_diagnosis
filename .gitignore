@@ -21,6 +21,7 @@ supervisor_code/
 .env
 .env.*
 !.env.example
+*.zip
 
 ############################
 # Zip script (optional local tool)
