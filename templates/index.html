@@ -60,7 +60,7 @@
 <nav class="top-menu-bar">
   <div class="menu-brand">
     <i data-lucide="activity" style="width:20px;height:20px;color:var(--primary-green)"></i>
-    <span>Early Cancer Diagnosis</span>
+    <span>Early Cancer Recognition</span>
   </div>
   <div class="menu-right">
     {% for role in current_user.roles %}
@@ -133,10 +133,16 @@
             <i data-lucide="file-text" class="green"></i>
             Agents Conversation
           </span>
-          <button type="button" id="resetBtn" class="btn-orange-outline">
-            <i data-lucide="refresh-cw" style="width:10px;height:10px"></i>
-            Reset
-          </button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button type="button" id="pauseResumeBtn" class="btn-orange-outline hidden">
+              <i data-lucide="pause" style="width:10px;height:10px"></i>
+              Pause
+            </button>
+            <button type="button" id="resetBtn" class="btn-orange-outline">
+              <i data-lucide="refresh-cw" style="width:10px;height:10px"></i>
+              Reset
+            </button>
+          </div>
         </div>
 
         <!-- Mode & Language Settings -->
@@ -296,7 +302,10 @@
           <i data-lucide="file-text"></i>
           Transcript
         </h2>
-        <span class="transcript-count" id="messageCount">0 messages</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="conversationStateBadge" class="hidden" style="font-size:0.7rem;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;border:1px solid #fde68a">Paused</span>
+          <span class="transcript-count" id="messageCount">0 messages</span>
+        </div>
       </div>
 
       <!-- Transcript Messages -->

@@ -7,10 +7,31 @@ from sqlalchemy.orm import sessionmaker, declarative_base, relationship, scoped_
 import uuid as _uuid
 
 # --- Config ---
-DB_URL = os.getenv("DATABASE_URL", "sqlite:///app.db")
+def _normalized_db_url() -> str:
+    """
+    Normalize DB URL so SQLAlchemy 2.x can use either SQLite or Postgres.
+
+    Supported examples:
+    - sqlite:///app.db
+    - postgresql+psycopg://user:pass@host:5432/dbname
+    - postgres://user:pass@host:5432/dbname  (auto-normalized)
+    """
+    raw = (os.getenv("DATABASE_URL") or "").strip()
+    if not raw:
+        return "sqlite:///app.db"
+    # Common shorthand in some environments
+    if raw.startswith("postgres://"):
+        return "postgresql+psycopg://" + raw[len("postgres://"):]
+    # Keep explicit SQLAlchemy postgres drivers as-is
+    if raw.startswith("postgresql://"):
+        return raw
+    return raw
+
+
+DB_URL = _normalized_db_url()
 
 # --- SQLAlchemy setup ---
-engine = create_engine(DB_URL, echo=False, future=True)
+engine = create_engine(DB_URL, echo=False, future=True, pool_pre_ping=True)
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 Base = declarative_base()
 
@@ -21,6 +42,9 @@ class Conversation(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     owner_user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=True)
     patient_id = Column(Integer, ForeignKey("patients.id"), index=True, nullable=True)
+    status = Column(String(16), default="active", nullable=False)  # active|paused|ended
+    paused_at = Column(DateTime, nullable=True)
+    resumed_at = Column(DateTime, nullable=True)
     messages = relationship(
         "Message",
         back_populates="conversation",
@@ -149,12 +173,32 @@ def _migrate_add_conversation_disease_likelihoods():
     if "conversation_disease_likelihoods" not in insp.get_table_names():
         Base.metadata.tables["conversation_disease_likelihoods"].create(engine, checkfirst=True)
 
+
+def _migrate_add_conversation_status():
+    """Ensure conversations.status/paused_at/resumed_at exist for existing DBs."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    if "conversations" not in insp.get_table_names():
+        return
+    cols = [c["name"] for c in insp.get_columns("conversations")]
+    with engine.connect() as conn:
+        if "status" not in cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN status VARCHAR(16) DEFAULT 'active'"))
+            conn.execute(text("UPDATE conversations SET status = 'active' WHERE status IS NULL OR status = ''"))
+        if "paused_at" not in cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN paused_at TIMESTAMP"))
+        if "resumed_at" not in cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN resumed_at TIMESTAMP"))
+        conn.commit()
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     _migrate_add_patient_fk()
     _migrate_add_user_username()
     _migrate_add_conversation_disease_likelihoods()
+    _migrate_add_conversation_status()
     _seed_roles()
+    _ensure_bootstrap_admin()
 
 def _seed_roles():
     db = SessionLocal()
@@ -163,6 +207,40 @@ def _seed_roles():
         for name in ("clinician", "admin"):
             if name not in existing:
                 db.add(Role(name=name))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _ensure_bootstrap_admin():
+    """
+    If BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD are set, create that user
+    with admin + clinician roles when no row exists for that email.
+
+    Use for a fresh PostgreSQL (or empty) database; remove secrets from env after first login.
+    """
+    email = (os.getenv("BOOTSTRAP_ADMIN_EMAIL") or "").strip().lower()
+    password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD") or ""
+    if not email or not password:
+        return
+    db = SessionLocal()
+    try:
+        if db.query(User).filter_by(email=email).first():
+            return
+        from security import hash_password
+
+        u = User(
+            email=email,
+            username=None,
+            password_hash=hash_password(password),
+            email_verified=False,
+        )
+        db.add(u)
+        db.commit()
+        for role_name in ("admin", "clinician"):
+            role = db.query(Role).filter_by(name=role_name).first()
+            if role and not any(r.id == role.id for r in u.roles):
+                db.execute(user_roles.insert().values(user_id=u.id, role_id=role.id))
         db.commit()
     finally:
         db.close()
@@ -247,6 +325,49 @@ def update_conversation_patient(conversation_id: str, user_id: int, patient_id: 
                 Conversation.owner_user_id == user_id,
             )
             .update({Conversation.patient_id: patient_id}, synchronize_session=False)
+        )
+        db.commit()
+        return n > 0
+    finally:
+        db.close()
+
+
+def get_conversation_status_if_owned(conversation_id: str, user_id: int) -> str | None:
+    """Return status for an owned conversation, else None."""
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(Conversation.status)
+            .filter(
+                Conversation.id == conversation_id,
+                Conversation.owner_user_id == user_id,
+            )
+            .first()
+        )
+        return row[0] if row else None
+    finally:
+        db.close()
+
+
+def set_conversation_status_if_owned(conversation_id: str, user_id: int, status: str) -> bool:
+    """Update status for an owned conversation. Returns True if updated."""
+    status = (status or "").strip().lower()
+    if status not in {"active", "paused", "ended"}:
+        return False
+    db = SessionLocal()
+    try:
+        values = {Conversation.status: status}
+        if status == "paused":
+            values[Conversation.paused_at] = datetime.utcnow()
+        elif status == "active":
+            values[Conversation.resumed_at] = datetime.utcnow()
+        n = (
+            db.query(Conversation)
+            .filter(
+                Conversation.id == conversation_id,
+                Conversation.owner_user_id == user_id,
+            )
+            .update(values, synchronize_session=False)
         )
         db.commit()
         return n > 0

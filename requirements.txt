@@ -12,6 +12,8 @@ python-dotenv==1.0.0
 
 # --- Database (SQLAlchemy only; no Flask-SQLAlchemy used) ---
 SQLAlchemy==2.0.42
+# PostgreSQL driver for SQLAlchemy (preferred for deployment)
+psycopg[binary]>=3.2.0
 
 # --- LLM / orchestration (CrewAI + LangChain OpenAI wrapper) ---
 crewai==0.10.0

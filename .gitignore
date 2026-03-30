@@ -20,6 +20,8 @@ supervisor_code/
 ############################
 .env
 .env.*
+!.env.example
+*.zip
 
 ############################
 # Zip script (optional local tool)
@@ -30,12 +32,12 @@ CHANGELOG.md
 ############################
 # Databases / Indexes
 ############################
-#app.db
-#*.db
-#*.sqlite
-#*.sqlite3
-#medical_cases.index
-#medical_cases_metadata.pkl
+app.db
+*.db
+*.sqlite
+*.sqlite3
+medical_cases.index
+medical_cases_metadata.pkl
 
 ############################
 # OS / Misc

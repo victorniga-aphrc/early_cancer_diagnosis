@@ -4,6 +4,17 @@ Documentation of changes made during project setup and improvement.
 
 ---
 
+## Database: PostgreSQL, `.env`, and migration
+
+- **PostgreSQL support** (`models.py`): `DATABASE_URL` normalization (`postgres://` → `postgresql+psycopg://`), default SQLite when unset, `create_engine(..., pool_pre_ping=True)`.
+- **Dependencies**: `psycopg[binary]` in `requirements.txt` for SQLAlchemy + Postgres.
+- **python-dotenv**: `load_dotenv()` runs at the **top** of `app.py` (before imports that load `models`) so `.env` applies to `DATABASE_URL` and bootstrap variables.
+- **Bootstrap admin** (optional): `BOOTSTRAP_ADMIN_EMAIL` + `BOOTSTRAP_ADMIN_PASSWORD` create an admin (+ clinician) user if that email is missing; intended for first deploy only.
+- **Data migration**: `scripts/migrate_from_sqlite.py` copies users, role links, patients, conversations, messages, `conversation_owners`, and `conversation_disease_likelihoods` from SQLite into the target DB (`DATABASE_URL`). `SQLITE_SOURCE` overrides the default `./app.db`. `scripts/migrate_users_from_sqlite.py` delegates to the same script.
+- **Documentation**: `README.md` (install, env table, migration), `.env.example` (template; `!.env.example` in `.gitignore` so it can be committed), `GITHUB.md` (doc index + CI DB note), `run.sh` header comments and clearer `DATABASE_URL` echo when unset.
+
+---
+
 ## Requirements & Dependencies
 
 ### Commented out optional/unused libraries
@@ -196,4 +207,7 @@ Documentation of changes made during project setup and improvement.
 ## File Structure
 
 - **run.sh** – One-command run script (keep when receiving updates from team)
+- **.env.example** – Template for `.env` (database URL, optional bootstrap admin, migration hint)
+- **scripts/migrate_from_sqlite.py** – Copy SQLite app data into the DB configured by `DATABASE_URL`
+- **scripts/migrate_users_from_sqlite.py** – Alias for the migration script (backward compatible)
 - **CHANGELOG.md** – This file

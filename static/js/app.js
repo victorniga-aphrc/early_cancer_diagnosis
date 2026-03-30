@@ -1,4 +1,6 @@
 // Medical Case Search - Main Application JavaScript
+let currentConversationId = null;
+let conversationPaused = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   // Initialize Lucide icons
@@ -163,6 +165,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const sendBtn = document.getElementById('sendBtn');
   const recordAudioBtn = document.getElementById('recordAudioBtn');
   const resetBtn = document.getElementById('resetBtn');
+  const pauseResumeBtn = document.getElementById('pauseResumeBtn');
   const finalizeBtn = document.getElementById('finalizeBtn');
   const transcriptDiv = document.getElementById('agentChatTranscript');
   const typingIndicator = document.getElementById('typingIndicator');
@@ -179,6 +182,75 @@ document.addEventListener("DOMContentLoaded", () => {
   const panelRight = document.getElementById('panel-right');
   const resizeRight = document.getElementById('resize-right');
   const closeSummary = document.getElementById('closeSummary');
+  const conversationStateBadge = document.getElementById('conversationStateBadge');
+
+  function setPauseUI(paused) {
+    conversationPaused = !!paused;
+    if (agentMessage) agentMessage.disabled = conversationPaused;
+    if (sendBtn) sendBtn.disabled = conversationPaused;
+    if (recordAudioBtn) recordAudioBtn.disabled = conversationPaused;
+    const startLiveBtn = document.getElementById('startLiveBtn');
+    if (startLiveBtn) startLiveBtn.disabled = conversationPaused || liveActive;
+    if (conversationStateBadge) {
+      conversationStateBadge.classList.toggle('hidden', !conversationPaused);
+    }
+  }
+
+  function renderPauseResumeControl() {
+    if (!pauseResumeBtn) return;
+    if (!currentConversationId) {
+      pauseResumeBtn.classList.add('hidden');
+      return;
+    }
+    pauseResumeBtn.classList.remove('hidden');
+    if (conversationPaused) {
+      pauseResumeBtn.innerHTML = '<i data-lucide="play" style="width:10px;height:10px"></i> Resume';
+    } else {
+      pauseResumeBtn.innerHTML = '<i data-lucide="pause" style="width:10px;height:10px"></i> Pause';
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons({ node: pauseResumeBtn });
+  }
+
+  async function refreshConversationState() {
+    try {
+      const res = await fetch('/api/current-conversation', { credentials: 'same-origin' });
+      const data = await res.json();
+      if (data.ok && data.conversation_id) {
+        currentConversationId = data.conversation_id;
+        setPauseUI((data.status || 'active') === 'paused');
+      } else {
+        currentConversationId = null;
+        setPauseUI(false);
+      }
+      renderPauseResumeControl();
+    } catch (e) {
+      console.warn('Could not refresh conversation state:', e);
+    }
+  }
+
+  async function togglePauseResume() {
+    if (!currentConversationId) return;
+    try {
+      const action = conversationPaused ? 'resume' : 'pause';
+      const res = await fetch(`/api/conversations/${encodeURIComponent(currentConversationId)}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': (window.CSRF_TOKEN || '') },
+        credentials: 'same-origin'
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data?.error || `Failed to ${action} conversation`);
+      }
+      setPauseUI((data.status || 'active') === 'paused');
+      renderPauseResumeControl();
+    } catch (e) {
+      alert(e?.message || 'Could not update conversation state');
+    }
+  }
+
+  if (pauseResumeBtn) {
+    pauseResumeBtn.addEventListener('click', togglePauseResume);
+  }
 
   // Role Toggle
   if (roleClinicianBtn && rolePatientBtn) {
@@ -367,6 +439,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Send Message
   async function sendMessage() {
+    if (conversationPaused) {
+      alert('Conversation is paused. Resume to continue.');
+      return;
+    }
+
     const message = agentMessage?.value.trim();
     if (!message) {
       alert('Please enter a message');
@@ -425,8 +502,12 @@ document.addEventListener("DOMContentLoaded", () => {
       `/agent_chat_stream?message=${encodeURIComponent(message)}&lang=${language}&role=${encodeURIComponent(sendRole)}&mode=${mode}`
     );
 
+    // First send in a session creates/activates the conversation.
+    refreshConversationState();
+
     eventSource.onmessage = (event) => {
       const item = JSON.parse(event.data);
+      if (!currentConversationId) refreshConversationState();
 
       if (item.type === "question_recommender") {
         const englishText = item.question?.english || '';
@@ -601,6 +682,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         currentSessionPatientId = null;
         currentPatientIdentifier = '';
+        currentConversationId = null;
+        setPauseUI(false);
+        renderPauseResumeControl();
 
       } catch (err) {
         console.error('Reset error:', err);
@@ -904,6 +988,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initialize UI
   updateChatInputStyle();
+  refreshConversationState();
 
   // ============================================
   // Export Functions (PDF & Word)
@@ -1300,6 +1385,10 @@ function getLiveRecoMode() {
 async function startLive() {
   if (document.getElementById('chatMode')?.value !== 'live') {
     alert('Switch Mode to "Live (Mic)" first.');
+    return;
+  }
+  if (conversationPaused) {
+    alert('Conversation is paused. Resume to continue.');
     return;
   }
   if (liveActive) return;
