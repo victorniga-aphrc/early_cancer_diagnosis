@@ -48,11 +48,9 @@ Thumbs.db
 
 ############################
 # Markdown (docs)
-# Keep README.md and CHANGELOG.md, ignore other *.md
+# Keep README.md, ignore other *.md
 ############################
 *.md
 !README.md
-!CHANGELOG.md
-!GITHUB.md
 
 

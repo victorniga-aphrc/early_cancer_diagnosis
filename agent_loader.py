@@ -1,18 +1,28 @@
 import yaml
+import os
 from crewai import Agent, Task
 from langchain_openai import ChatOpenAI
 from helper import get_openai_api_key
 
 def load_llm():
     """
-    Load the LLM with the OpenAI key.
+    Load the LLM with env-driven settings.
+
+    Environment variables:
+    - OPENAI_MODEL (default: gpt-5)
+    - OPENAI_TEMPERATURE (default: 0.0)
     """
     api_key = get_openai_api_key()
     if not api_key:
         raise ValueError("OPENAI_API_KEY not found in environment!")
+    model = (os.getenv("OPENAI_MODEL") or "gpt-5").strip()
+    try:
+        temperature = float((os.getenv("OPENAI_TEMPERATURE") or "0.0").strip())
+    except ValueError:
+        temperature = 0.0
     return ChatOpenAI(
-        temperature=0.0,
-        model="gpt-4o",
+        temperature=temperature,
+        model=model,
         openai_api_key=api_key
     )
 

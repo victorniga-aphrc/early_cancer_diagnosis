@@ -23,14 +23,6 @@ source .venv/bin/activate
 pip install -q --upgrade pip
 pip install -q -r requirements.txt
 
-# Database target notice (DATABASE_URL may come from the shell or from .env loaded by app.py)
-if [ -z "${DATABASE_URL:-}" ]; then
-    echo "DATABASE_URL not set in this shell. App will use SQLite unless .env defines DATABASE_URL."
-    echo "PostgreSQL example: export DATABASE_URL='postgresql+psycopg://user:pass@host:5432/early_cancer_db'"
-else
-    echo "DATABASE_URL is set in this shell (Postgres or custom URL)."
-fi
-
 # Run the app
 echo "Starting app..."
 python app.py
