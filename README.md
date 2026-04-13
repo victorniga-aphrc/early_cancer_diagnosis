@@ -59,6 +59,8 @@ The app uses [python-dotenv](https://pypi.org/project/python-dotenv/): variables
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DATABASE_URL` | No | If unset, default is SQLite `sqlite:///app.db`. For PostgreSQL use e.g. `postgresql+psycopg://USER:PASSWORD@HOST:5432/DB_NAME`. The shorthand `postgres://...` is normalized automatically. |
+| `OPENAI_MODEL` | No | Model used by CrewAI/`ChatOpenAI` in `agent_loader.py`. Default: `gpt-5`. Example values (depending on your account access): `gpt-5`, `gpt-4o`, `gpt-4.1`, `gpt-4.1-mini`. |
+| `OPENAI_TEMPERATURE` | No | LLM temperature as a float. Default: `0.0`. |
 | `BOOTSTRAP_ADMIN_EMAIL` | No | With `BOOTSTRAP_ADMIN_PASSWORD`, creates a first **admin** (+ clinician) user on startup if that email is not already registered. **Remove both from `.env` after first login** in production. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | No | See above. Use a strong password. |
 | `SQLITE_SOURCE` | No | Only for the migration script: path to the SQLite file (default `./app.db`). |

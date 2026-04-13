@@ -1,20 +1,57 @@
 import yaml
+import os
 from crewai import Agent, Task
-from langchain_openai import ChatOpenAI
 from helper import get_openai_api_key
 
 def load_llm():
     """
-    Load the LLM with the OpenAI key.
+    Load the LLM with env-driven settings.
+
+    Environment variables:
+    - OPENAI_MODEL (default: gpt-5)
+    - OPENAI_TEMPERATURE (default: 0.0)
     """
     api_key = get_openai_api_key()
     if not api_key:
         raise ValueError("OPENAI_API_KEY not found in environment!")
-    return ChatOpenAI(
-        temperature=0.0,
-        model="gpt-4o",
-        openai_api_key=api_key
-    )
+    model = (os.getenv("OPENAI_MODEL") or "gpt-5").strip()
+    try:
+        temperature = float((os.getenv("OPENAI_TEMPERATURE") or "0.0").strip())
+    except ValueError:
+        temperature = 0.0
+    is_gpt5_family = model.lower().startswith("gpt-5")
+    # Prefer CrewAI's LLM wrapper when available so we can drop unsupported params (e.g., stop for GPT-5).
+    try:
+        from crewai import LLM
+        # CrewAI routes through LiteLLM; enable unsupported-param dropping globally.
+        # This avoids GPT-5 errors like: Unsupported parameter 'stop'.
+        try:
+            import litellm
+            litellm.drop_params = True
+        except Exception:
+            pass
+        kwargs = {
+            "model": model,
+            "api_key": api_key,
+        }
+        # GPT-5 currently accepts only the default temperature; omit this param.
+        if not is_gpt5_family:
+            kwargs["temperature"] = temperature
+        return LLM(**kwargs)
+    except Exception:
+        # Backward compatibility with older CrewAI stacks.
+        from langchain_openai import ChatOpenAI
+        if model.startswith("gpt-5"):
+            raise RuntimeError(
+                "OPENAI_MODEL is set to gpt-5, but this CrewAI version does not expose `LLM` "
+                "required to drop unsupported `stop` params. Upgrade CrewAI/LangChain pins in "
+                "requirements.txt, then reinstall dependencies."
+            )
+        return ChatOpenAI(
+            temperature=1.0 if is_gpt5_family else temperature,
+            model=model,
+            openai_api_key=api_key,
+        )
 
 def load_agents_from_yaml(yaml_path, llm):
     """

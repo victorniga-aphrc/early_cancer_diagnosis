@@ -8,7 +8,7 @@ Flask-Login==0.6.3
 Flask-WTF==1.2.2
 flask-sock==0.7.0
 simple-websocket==1.1.0
-python-dotenv==1.0.0
+python-dotenv~=1.1.1
 
 # --- Database (SQLAlchemy only; no Flask-SQLAlchemy used) ---
 SQLAlchemy==2.0.42
@@ -16,17 +16,24 @@ SQLAlchemy==2.0.42
 psycopg[binary]>=3.2.0
 
 # --- LLM / orchestration (CrewAI + LangChain OpenAI wrapper) ---
-crewai==0.10.0
-PyYAML==6.0.2  # langchain-openai will be pulled transitively by crewai
+crewai>=1.13.0,<2.0.0
+langchain>=1.2.0,<2.0.0
+langchain-core>=1.2.21,<2.0.0
+langchain-community>=0.4.1,<0.5.0
+langchain-openai>=1.1.12,<2.0.0
+openai>=2.30.0,<3.0.0
+tiktoken>=0.7.0,<1.0.0
+PyYAML==6.0.2
 
 # --- Retrieval & embeddings (FAISS + sentence-transformers) ---
 faiss-cpu>=1.8.0
 sentence-transformers>=2.3.0
 numpy>=1.26.0
-huggingface-hub>=0.20.0
+huggingface-hub>=0.34.0,<1.0
 
 # --- Gemini STT engine + VAD ---
 google-genai>=0.3.0
+websockets>=13.0.0,<15.1.0
 webrtcvad==2.0.10
 
 # --- Local audio utilities + optional offline STT helpers ---
