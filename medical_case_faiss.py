@@ -1,4 +1,5 @@
 import json
+import os
 import numpy as np
 import faiss
 import pickle
@@ -33,7 +34,7 @@ class MedicalCaseFAISS:
     Optimized for Flask web application use
     """
 
-    def __init__(self, model_name: str = 'sentence-transformers/all-MiniLM-L6-v2'):
+    def __init__(self, model_name: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'all-MiniLM-L6-v2')):
         """
         Initialize the FAISS database system
 

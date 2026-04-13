@@ -69,7 +69,8 @@ app.config.from_object(Config)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-change-me")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = not app.debug
+_has_ssl = os.path.exists(os.path.join(os.path.dirname(__file__), "cert.pem"))
+app.config["SESSION_COOKIE_SECURE"] = _has_ssl or os.getenv("FLASK_ENV") == "production"
 
 login_manager.init_app(app)
 
@@ -1150,17 +1151,30 @@ def admin_page():
 
 
 # -----------------------------------------------------------------------------
-# Main
+# Initialization (runs for both gunicorn and direct execution)
 # -----------------------------------------------------------------------------
-if __name__ == "__main__":
-    if initialize_faiss():
-        init_db()
-        logger.info("Starting Flask application (Gemini-only STT enabled)...")
-        app.run(debug=True, host="0.0.0.0", port=5000)
-    else:
-        logger.error("Failed to initialize FAISS system. Application cannot start.")
-        logger.error("Please ensure the following files exist:")
-        logger.error(f"- {app.config['FAISS_INDEX_PATH']}")
-        logger.error(f"- {app.config['FAISS_METADATA_PATH']}")
+if not initialize_faiss():
+    logger.error("Failed to initialize FAISS system. Application cannot start.")
+    logger.error("Please ensure the following files exist:")
+    logger.error(f"- {app.config['FAISS_INDEX_PATH']}")
+    logger.error(f"- {app.config['FAISS_METADATA_PATH']}")
+    if __name__ == "__main__":
         print("\nTo build the database, run your original script first:")
         print("python medical_case_faiss.py")
+        exit(1)
+
+init_db()
+
+# -----------------------------------------------------------------------------
+# Main (direct execution only — gunicorn imports `app:app` directly)
+# -----------------------------------------------------------------------------
+if __name__ == "__main__":
+    ssl_ctx = None
+    cert = os.path.join(os.path.dirname(__file__), "cert.pem")
+    key = os.path.join(os.path.dirname(__file__), "cert.key")
+    if os.path.exists(cert) and os.path.exists(key):
+        ssl_ctx = (cert, key)
+        logger.info("Starting Flask application with HTTPS (Gemini-only STT enabled)...")
+    else:
+        logger.info("Starting Flask application (Gemini-only STT enabled)...")
+    app.run(debug=True, host="0.0.0.0", port=5000, ssl_context=ssl_ctx)
